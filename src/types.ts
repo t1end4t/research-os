@@ -80,6 +80,7 @@ export interface ChatMessage {
   sender: MessageSender;
   text: string;
   timestamp: string;
+  modelId?: string;
   affectedNodeId?: string;
   proposals?: ClusteringProposal[];
   undoAction?: {

@@ -12,6 +12,7 @@ import {
   Plus,
   MessageSquare,
   Check,
+  Loader2,
 } from 'lucide-react';
 
 interface AssistantDockProps {
@@ -21,7 +22,8 @@ interface AssistantDockProps {
   allThreads: AssistantThread[];
   onSelectThread: (threadId: string) => void;
   onCreateNewThread: () => void;
-  onSendMessage: (text: string, quotedSnippet?: string | null) => void;
+  onSendMessage: (text: string, quotedSnippet?: string | null) => Promise<void>;
+  isResponding: boolean;
   onUndoEdit: (messageId: string) => void;
   onAcceptProposal?: (proposal: import('../types').ClusteringProposal, messageId: string) => void;
   onRejectProposal?: (proposalId: string, messageId: string) => void;
@@ -40,6 +42,7 @@ export function AssistantDock({
   onSelectThread,
   onCreateNewThread,
   onSendMessage,
+  isResponding,
   onUndoEdit,
   onAcceptProposal,
   onRejectProposal,
@@ -106,8 +109,8 @@ export function AssistantDock({
 
   const handleSubmit = () => {
     const trimmed = inputText.trim();
-    if (!trimmed && !quotedSnippet) return;
-    onSendMessage(trimmed, quotedSnippet);
+    if (!trimmed || isResponding) return;
+    void onSendMessage(trimmed, quotedSnippet);
     setInputText('');
     onClearQuotedSnippet();
     if (textareaRef.current) {
@@ -121,37 +124,37 @@ export function AssistantDock({
       case 'survey':
         return [
           'Are these one gap or several?',
-          'Which of these is already solved?',
-          'What is nobody asking here?',
+          'Which notes seem to mix different assumptions?',
+          'What distinction should I make explicit?',
         ];
       case 'whole_graph':
         return [
           'Which claim is most vulnerable?',
           'Where are the evidentiary gaps?',
-          'Suggest next experiment',
+          'Which claim appears broader than its evidence?',
         ];
       case 'claim':
         return [
-          'Weaken claim to correlational',
-          'What experiment would test this?',
-          'Find papers that contradict',
+          'Is this claim causal or correlational?',
+          'Where does this claim exceed its evidence?',
+          'What does the stated reason fail to establish?',
         ];
       case 'paper':
         return [
-          'Read against my claims',
-          'What do the authors assume without testing?',
-          'Draft reproduction checklist',
+          'Does this paper support my selected claim?',
+          'What does this passage not establish?',
+          'Which assumption matters for my claim?',
         ];
       case 'experiment':
         return [
-          'Which experiment resolves the biggest gap?',
-          'Generate protocol draft',
+          'Does this experiment measure the claim?',
+          'Is the experiment narrower than the claim?',
         ];
       default:
         return [
           'Which claim is most vulnerable?',
           'Where are the evidentiary gaps?',
-          'Suggest next experiment',
+          'Which claim appears broader than its evidence?',
         ];
     }
   };
@@ -164,11 +167,11 @@ export function AssistantDock({
       case 'whole_graph':
         return 'Ask about your argument structure...';
       case 'claim':
-        return 'Ask about this claim, or suggest an edit...';
+        return 'Ask about this claim or its supporting reason...';
       case 'paper':
         return 'Ask about this paper, or select text to quote...';
       case 'experiment':
-        return 'Ask about protocols, parameters, or outcomes...';
+        return 'Ask whether this experiment tests its claim...';
       default:
         return 'Ask about your argument structure...';
     }
@@ -442,7 +445,7 @@ export function AssistantDock({
                   {msg.text}
                 </div>
                 <span className="text-[10px] text-[#999] dark:text-[#666] opacity-0 group-hover:opacity-100 transition-opacity mt-1 pl-1 select-none">
-                  {msg.timestamp}
+                  {msg.modelId ? `${msg.timestamp} · ${msg.modelId}` : msg.timestamp}
                 </span>
               </div>
             );
@@ -504,15 +507,16 @@ export function AssistantDock({
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             placeholder={getInputPlaceholder()}
+            disabled={isResponding}
             className="w-full resize-none bg-transparent px-3 py-2 text-[13px] text-[#1a1a1a] dark:text-[#dedede] placeholder-[#999] dark:placeholder-[#666] focus:outline-hidden leading-normal max-h-24 select-text"
           />
           <button
             onClick={handleSubmit}
-            disabled={!inputText.trim() && !quotedSnippet}
+            disabled={!inputText.trim() || isResponding}
             title="Send (Enter)"
             className="p-1.5 mr-1 text-[#6b6b6b] dark:text-[#a0a0a0] hover:text-[#1a1a1a] dark:hover:text-white disabled:opacity-30 disabled:pointer-events-none transition-colors cursor-pointer shrink-0"
           >
-            <Send className="w-4 h-4" />
+            {isResponding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
           </button>
         </div>
       </div>

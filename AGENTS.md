@@ -153,7 +153,7 @@ switches the transcript; **it never appends across contexts.**
   - `Target` — the experiment measures something other than the claim
 
   Return a status and a short finding. **Nothing else.**
-- **Edit graph structure on instruction.** Four operations only — add, move,
+- **Edit graph structure on instruction.** Five operations only — add, move,
   rename, split, delete — as structured output. Show each edit as a confirmation
   line with an Undo link.
 - **Cluster loose survey notes** into proposed groupings for the user to accept
@@ -176,12 +176,23 @@ switches the transcript; **it never appends across contexts.**
 - Set or change a link status without the user's reason present.
 
 ### Model configuration
-- **Pin one model per feature in config.** No router, no fallback chain, no
-  automatic model selection. Behaviour must be reproducible or the eval set is
-  meaningless.
-- Every AI call is **single-shot** with a **strict JSON output schema**,
-  validated on receipt, **one retry on parse failure**. No agent loops. No tool
-  use. No filesystem or shell access from the model.
+- The assistant runtime is `@earendil-works/pi-agent-core`, connected to
+  9router through its OpenAI Responses-compatible endpoint.
+- **Pin the assistant model in server config.** No fallback chain, automatic
+  model selection, or client-supplied model id. Behaviour must be reproducible
+  or the eval set is meaningless.
+- Agent loops are allowed only inside the assistant server and are bounded to
+  four model turns per user message. Each app context owns one isolated agent
+  thread; messages never cross contexts.
+- The model may call only TypeBox-validated Instrument domain tools. The server
+  exposes no shell, filesystem, general network, code execution, unrestricted
+  database, or arbitrary HTTP tool.
+- Every accepted assistant result must arrive through a strict domain tool
+  schema. Reject malformed tool arguments. Retry once when no valid result is
+  produced, then return an error without applying an edit.
+- At most one mutating graph tool may succeed per user message. Mutations remain
+  explicit, versioned application operations with a confirmation line and Undo;
+  the model never writes storage directly.
 - **Record the model id on anything the model produced**, so the user can later
   filter to only what they asserted themselves.
 
@@ -197,7 +208,7 @@ switches the transcript; **it never appends across contexts.**
    Bind to `127.0.0.1` only.
 4. Positions and links are **versioned, not overwritten**. A change of mind is a
    new row with a reason. **The history is the product.**
-5. Before changing any prompt, run the eval set and record the score against a
+5. After the initial chat bootstrap, before changing any prompt, run the eval set and record the score against a
    hash of the prompt file. **Prompt changes without an eval run are not
    accepted.**
 6. If something in this file conflicts with a later instruction, **say so**
@@ -212,14 +223,15 @@ TypeScript only. No Python in this repo.
 | Layer | Choice |
 |---|---|
 | UI | React 19, Vite 6, Tailwind 4, `lucide-react`, `motion` |
-| Backend | Node + Express, TypeScript. Vite proxies `/api` to it. `127.0.0.1` only. |
+| Backend | Node + Express, TypeScript. Express hosts Vite middleware in dev. `127.0.0.1` only. |
 | Storage | SQLite, one file, inside the active workspace folder |
-| LLM | **Undecided — see §7** |
+| LLM | `@earendil-works/pi-agent-core` via 9router; pinned `cx/gpt-5.6-sol` |
 
-**Current state:** the repo is still the AI Studio export. `src/App.tsx` holds
-all state. Every tab reads hardcoded fixtures from `src/data/*`. There is no
-server, no SQLite, no `/api`, no real model call. `@google/genai` is in
-`package.json` from the export but is not a committed decision.
+**Current state:** graph, survey, paper, and experiment data remain hardcoded
+fixtures, and `src/App.tsx` still holds all UI state. A loopback Express server
+now hosts Vite and `/api/assistant`; Pi chat uses 9router with one strict reply
+tool and isolated in-memory context threads. There is still no SQLite or domain
+tool for checks, clustering, or graph edits.
 
 `README.md` is AI Studio boilerplate and is stale. Root `CLAUDE.md` is a
 compatibility pointer to this file. **This file (`AGENTS.md`) is the authority.**
@@ -244,21 +256,18 @@ Refuse it and refer to this paragraph.
 
 ---
 
-## 7. Open decisions
+## 7. LLM decisions
 
-Do not implement past a line marked **OPEN** without asking.
-
-- **OPEN — LLM provider and pinned model ids.** Not decided. When taken, the
-  decision must satisfy §4: one pinned model per feature, strict JSON schema,
-  single-shot, model id recorded on every produced row. Structure the
-  integration so the provider sits behind one narrow module and the four
-  features (link check, structure edit, survey clustering, paper Q&A) each name
-  their own pinned model in config. `@google/genai` being installed is an
-  artifact of the export, not a choice.
-- **OPEN — where the API key lives.** It must never reach the browser. Server
-  reads it from env; the client calls `/api`.
-- **OPEN — eval set location and runner.** Rule 5 requires one but does not
-  place it. Nothing exists yet.
+- **Provider and model:** 9router through the OpenAI Responses-compatible API.
+  The server pins `cx/gpt-5.6-sol`; no fallback or model router exists inside
+  Instrument. 9router routing is an external transport concern.
+- **Package:** `@earendil-works/pi-agent-core`. Do not use the renamed legacy
+  `@mariozechner/*` packages or `@google/genai`.
+- **Credentials:** the server optionally reads `NINEROUTER_API_KEY` and
+  `NINEROUTER_BASE_URL`; the browser receives neither. The default base URL is
+  `http://127.0.0.1:20128/v1`, which currently accepts keyless local requests.
+- **Eval location:** deferred until capabilities expand beyond chat. Put the
+  runner and cases in `evals/assistant/` before the next prompt change.
 
 ### Assumptions in force (correct these if wrong)
 

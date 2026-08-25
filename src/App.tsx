@@ -21,6 +21,7 @@ import { PapersPane } from './components/PapersPane';
 import { ExperimentsPane } from './components/ExperimentsPane';
 import { SurveyPane } from './components/SurveyPane';
 import { AssistantDock } from './components/AssistantDock';
+import type { AssistantErrorResponse, AssistantResponse } from './assistantApi';
 import {
   PanelRightClose,
   PanelRightOpen,
@@ -70,6 +71,7 @@ export default function App() {
   // Global Assistant Dock State (persistent across tab switches)
   const [isAssistantOpen, setIsAssistantOpen] = useState<boolean>(true);
   const [assistantQuotedSnippet, setAssistantQuotedSnippet] = useState<string | null>(null);
+  const [isAssistantResponding, setIsAssistantResponding] = useState(false);
 
   // Assistant Dock Width & Resizing State with persistence
   const [dockWidth, setDockWidth] = useState<number>(() => {
@@ -1101,197 +1103,90 @@ export default function App() {
   };
 
   // Assistant Dock Message Dispatcher
-  const handleAssistantSendMessage = (text: string, quotedSnippet?: string | null) => {
+  const handleAssistantSendMessage = async (text: string, quotedSnippet?: string | null) => {
+    const trimmed = text.trim();
+    if (!trimmed || isAssistantResponding) return;
+
+    const threadId = activeThreadId;
+    const context = currentContext;
     const userMsg: ChatMessage = {
       id: `user-${Date.now()}`,
       sender: 'user',
-      text: quotedSnippet ? `"${quotedSnippet}"\n\n${text}` : text,
+      text: quotedSnippet ? `"${quotedSnippet}"\n\n${trimmed}` : trimmed,
       timestamp: getFormattedTime(),
     };
 
-    const cleanInput = text.trim().toLowerCase();
-    let responseMsg: ChatMessage;
-
-    if (
-      cleanInput.startsWith('add paper: overlap is fixed across conditions, smith 2021') ||
-      cleanInput.includes('overlap is fixed across conditions')
-    ) {
-      const targetClaimId = selectedClaimId || 'c1';
-      const newPaperId = `paper-${Date.now()}`;
-      const newPaperItem = {
-        id: newPaperId,
-        kind: 'paper' as const,
-        typeLabel: 'PAPER',
-        title: 'Overlap is fixed across conditions',
-        citation: 'Smith 2021',
-      };
-
-      setQuestionsData((prev) =>
-        prev.map((q) => ({
-          ...q,
-          claims: q.claims.map((c) =>
-            c.id === targetClaimId
-              ? {
-                  ...c,
-                  evidence: [...c.evidence, newPaperItem],
-                  linkStatus: 'weak',
-                }
-              : c
-          ),
-        }))
-      );
-
-      triggerHighlight(newPaperId);
-
-      responseMsg = {
-        id: `asst-${Date.now() + 1}`,
-        sender: 'edit_confirmation',
-        text: 'Added paper: Overlap is fixed across conditions, Smith 2021',
-        timestamp: getFormattedTime(),
-        affectedNodeId: newPaperId,
-        undoAction: {
-          type: 'remove_evidence',
-          claimId: targetClaimId,
-          evidenceId: newPaperId,
-        },
-      };
-    } else if (
-      cleanInput.includes('weaken claim') ||
-      cleanInput.includes('weaken') ||
-      cleanInput.includes('correlational')
-    ) {
-      const targetClaimId = selectedClaimId || 'c1';
-      handleWeakenClaim(targetClaimId);
-      triggerHighlight(targetClaimId);
-
-      responseMsg = {
-        id: `asst-${Date.now() + 1}`,
-        sender: 'edit_confirmation',
-        text: 'Weakened claim to correlational formulation',
-        timestamp: getFormattedTime(),
-        affectedNodeId: targetClaimId,
-        undoAction: {
-          type: 'weaken_claim',
-          claimId: targetClaimId,
-        },
-      };
-    } else if (
-      cleanInput.includes('suggest next experiment') ||
-      cleanInput.includes('what experiment would test this') ||
-      cleanInput.includes('add experiment') ||
-      cleanInput.includes('causal test')
-    ) {
-      const targetClaimId = selectedClaimId || 'c1';
-      handleAddExperiment(targetClaimId);
-      triggerHighlight(targetClaimId);
-
-      responseMsg = {
-        id: `asst-${Date.now() + 1}`,
-        sender: 'edit_confirmation',
-        text: 'Added causal manipulation experiment to claim',
-        timestamp: getFormattedTime(),
-        affectedNodeId: targetClaimId,
-        undoAction: {
-          type: 'remove_experiment',
-          claimId: targetClaimId,
-          evidenceId: 'e3',
-        },
-      };
-    } else if (cleanInput.includes('are these one gap or several')) {
-      responseMsg = {
-        id: `asst-${Date.now() + 1}`,
-        sender: 'assistant',
-        text: 'Looking across your survey pile, these open problems represent three distinct bottlenecks:\n\n1. Physical memory bounds (microcontroller SRAM paging limits & FeRAM write wear).\n2. Algorithmic representation (INT4 quantization and spatial activation sparsity).\n3. Measurement methodology (cycle timer drift and hardware-in-the-loop latency differences).\n\nSeparating them into distinct candidate questions will produce tighter, falsifiable claims.',
-        timestamp: getFormattedTime(),
-      };
-    } else if (cleanInput.includes('which of these is already solved')) {
-      responseMsg = {
-        id: `asst-${Date.now() + 1}`,
-        sender: 'assistant',
-        text: 'Reviewing recent literature against these open problems:\n• Static INT4 quantization calibration has established post-training solutions, but dynamic transformer attention sparsity remains unsolved on microcontrollers.\n• Memory-mapped Flash paging is well-studied, but fixed-SRAM activation swapping penalties (8x latency) remain an unavoidable hardware constraint.\n• Cycle timer standardization across heterogeneous vendor SDKs is still an active debate in embedded MLPerf standards.',
-        timestamp: getFormattedTime(),
-      };
-    } else if (cleanInput.includes('what is nobody asking here')) {
-      responseMsg = {
-        id: `asst-${Date.now() + 1}`,
-        sender: 'assistant',
-        text: 'Three unasked dimensions in this pile:\n1. Thermal throttling drift: Does continuous on-device inference cause voltage drop and thermal throttle that skews long-run latency measurements?\n2. Continual fine-tuning feasibility: Under 10k FeRAM write cycles, can adapter weights be selectively refreshed without burning through endurance?\n3. Compiler vectorization vs algorithmic sparsity: Do compiler optimization passes (e.g., CMSIS-NN) actually realize theoretical FLOP reductions when sparsity is irregular?',
-        timestamp: getFormattedTime(),
-      };
-    } else if (cleanInput.includes('which claim is most vulnerable') || cleanInput.includes('weakest')) {
-      responseMsg = {
-        id: `asst-${Date.now() + 1}`,
-        sender: 'assistant',
-        text: 'Claim c1 ("Sparsity lowers overlap, and overlap causes interference") is currently the most vulnerable. It makes a strong causal assertion, but the two primary citations (Olshausen & Field 1996; Ahmad & Scheinkman 2019) only document observational correlations without holding sparsity constant.',
-        timestamp: getFormattedTime(),
-      };
-    } else if (cleanInput.includes('where are the evidentiary gaps') || cleanInput.includes('evidentiary gaps')) {
-      responseMsg = {
-        id: `asst-${Date.now() + 1}`,
-        sender: 'assistant',
-        text: 'The primary evidentiary gap lies between static sparse dictionary learning and dynamic catastrophic forgetting. No linked paper directly measures sequential interference when subspace overlap is synthetically forced in high-dimensional representations.',
-        timestamp: getFormattedTime(),
-      };
-    } else if (cleanInput.includes('read against my claims') || cleanInput.includes('read this paper against')) {
-      responseMsg = {
-        id: `asst-${Date.now() + 1}`,
-        sender: 'assistant',
-        text: 'Reading this paper against your graph:\n1. It confirms that localized Gabor-like filters emerge under natural image statistics with sparsity penalty lambda.\n2. However, it does NOT test whether lower filter overlap prevents interference during subsequent online weight updates.',
-        timestamp: getFormattedTime(),
-      };
-    } else if (cleanInput.includes('assume without testing') || cleanInput.includes('assumptions')) {
-      responseMsg = {
-        id: `asst-${Date.now() + 1}`,
-        sender: 'assistant',
-        text: 'The authors assume that representation efficiency directly translates to functional memory retention in recurrent associative circuits. This link remains unverified without targeted intervention trials.',
-        timestamp: getFormattedTime(),
-      };
-    } else if (cleanInput.includes('reproduction checklist') || cleanInput.includes('protocol draft')) {
-      responseMsg = {
-        id: `asst-${Date.now() + 1}`,
-        sender: 'assistant',
-        text: 'Reproduction Protocol:\n1. Sample 16x16 pixel patches from 10 whitened natural images.\n2. Define linear generative model I(x, y) = sum_i a_i * phi_i(x, y).\n3. Set Cauchy prior on activation coefficients: S(a) = log(1 + (a/sigma)^2).\n4. Run 50,000 mini-batch iterations with learning rate eta = 0.001.\n5. Measure coordinate overlap matrix Omega_ij = <phi_i, phi_j>.',
-        timestamp: getFormattedTime(),
-      };
-    } else if (cleanInput.includes('which experiment resolves the biggest gap')) {
-      responseMsg = {
-        id: `asst-${Date.now() + 1}`,
-        sender: 'assistant',
-        text: 'Experiment E3 ("Subspace overlap manipulation under fixed sparsity in associative recall") addresses the central causal gap by decoupling activation sparsity from geometric subspace overlap.',
-        timestamp: getFormattedTime(),
-      };
-    } else {
-      let customReply = `I've analyzed your research question relative to the active context.`;
-      if (currentContext.kind === 'survey') {
-        customReply = `In the Survey discovery pile, you have ${openProblems.length} open problems and ${candidateQuestions.length} candidate questions. Formulate falsifiable claims to promote candidates into the core graph.`;
-      } else if (currentContext.kind === 'claim' && selectedClaim) {
-        customReply = `Regarding claim "${selectedClaim.text.slice(0, 45)}...": the evidence structure is currently classified as "${selectedClaim.linkStatus.toUpperCase()}". ${selectedClaim.check.explanation}`;
-      } else if (currentContext.kind === 'paper' && activePaperId) {
-        const p = PAPERS_CATALOG.find((item) => item.id === activePaperId);
-        customReply = `In "${p?.title}": the authors demonstrate sparse code emergence, but you should verify whether their assumptions align with your downstream memory interference hypotheses.`;
-      }
-      responseMsg = {
-        id: `asst-${Date.now() + 1}`,
-        sender: 'assistant',
-        text: customReply,
-        timestamp: getFormattedTime(),
-      };
-    }
-
     setThreads((prev) => {
-      const current = prev[activeThreadId] || {
-        id: activeThreadId,
-        contextKind: currentContext.kind,
-        contextId: currentContext.id,
-        contextLabel: currentContext.label,
+      const thread = prev[threadId] || {
+        id: threadId,
+        contextKind: context.kind,
+        contextId: context.id,
+        contextLabel: context.label,
         messages: [],
         lastUpdated: 'Just now',
       };
       return {
         ...prev,
-        [activeThreadId]: {
-          ...current,
-          messages: [...current.messages, userMsg, responseMsg],
+        [threadId]: {
+          ...thread,
+          messages: [...thread.messages, userMsg],
+          lastUpdated: getFormattedTime(),
+        },
+      };
+    });
+
+    const contextData = context.kind === 'survey'
+      ? { openProblems, candidateQuestions }
+      : context.kind === 'paper'
+        ? PAPERS_CATALOG.find((paper) => paper.id === context.id)
+        : context.kind === 'claim'
+          ? { question: selectedQuestion, claim: selectedClaim }
+          : { questions: tagFilteredQuestions };
+
+    setIsAssistantResponding(true);
+    let responseMsg: ChatMessage;
+    try {
+      const response = await fetch('/api/assistant', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          threadId,
+          context,
+          message: trimmed,
+          quotedSnippet: quotedSnippet || undefined,
+          contextData,
+        }),
+      });
+      const body = await response.json() as AssistantResponse | AssistantErrorResponse;
+      if (!response.ok || !('text' in body)) {
+        throw new Error('error' in body ? body.error : 'Assistant request failed.');
+      }
+      responseMsg = {
+        id: `asst-${Date.now()}`,
+        sender: 'assistant',
+        text: body.text,
+        timestamp: getFormattedTime(),
+        modelId: body.modelId,
+      };
+    } catch (error) {
+      responseMsg = {
+        id: `asst-error-${Date.now()}`,
+        sender: 'assistant',
+        text: error instanceof Error ? `Assistant unavailable: ${error.message}` : 'Assistant unavailable.',
+        timestamp: getFormattedTime(),
+      };
+    } finally {
+      setIsAssistantResponding(false);
+    }
+
+    setThreads((prev) => {
+      const thread = prev[threadId];
+      if (!thread) return prev;
+      return {
+        ...prev,
+        [threadId]: {
+          ...thread,
+          messages: [...thread.messages, responseMsg],
           lastUpdated: getFormattedTime(),
         },
       };
@@ -1714,6 +1609,7 @@ export default function App() {
               onSelectThread={setActiveThreadId}
               onCreateNewThread={handleCreateNewThread}
               onSendMessage={handleAssistantSendMessage}
+              isResponding={isAssistantResponding}
               onUndoEdit={handleUndoEdit}
               onAcceptProposal={handleAcceptProposal}
               onRejectProposal={handleRejectProposal}
@@ -1729,4 +1625,3 @@ export default function App() {
     </div>
   );
 }
-

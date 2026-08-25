@@ -43,8 +43,9 @@ library that simulates.
 
 ## Boundaries
 
-- **No component calls a model directly.** Today nothing does. When the LLM
-  lands it goes behind `/api`, and the key never reaches the browser.
+- **No component calls a model directly.** `App.tsx` sends assistant messages
+  through `/api/assistant`; provider configuration stays in the server, and no
+  key reaches the browser.
 - **Any UI that writes a link must block on `user_reason`.** Disabled submit,
   not a validation message after the fact. This applies to `+ Evidence` in
   `PapersPane` and to every add-node path.
