@@ -1,24 +1,20 @@
-# TypeScript Fullstack Template
+<div align="center">
+<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
+</div>
 
-Minimal TypeScript app with:
+# Run and deploy your AI Studio app
 
-- Backend: Express
-- Frontend: Vite + vanilla TypeScript
-- Dev shell: devenv/Nix TypeScript support
+This contains everything you need to run your app locally.
 
-## Run
+View your app in AI Studio: https://ai.studio/apps/387664b9-a50a-49d5-a415-331be377eeaa
 
-```bash
-npm install
-npm run dev
-```
+## Run Locally
 
-Open <http://localhost:5173>.
+**Prerequisites:**  Node.js
 
-## Scripts
 
-```bash
-npm run dev     # backend + frontend
-npm run build   # compile both apps
-npm run start   # run built backend
-```
+1. Install dependencies:
+   `npm install`
+2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+3. Run the app:
+   `npm run dev`

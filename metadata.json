@@ -1,0 +1,6 @@
+{
+  "name": "Claim Evidence Graph",
+  "description": "A clean, Notion-style epistemic graph linking research questions, claims, and evidence with an automated claim verification check panel.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
