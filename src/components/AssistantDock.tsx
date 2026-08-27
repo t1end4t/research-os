@@ -25,8 +25,6 @@ interface AssistantDockProps {
   onSendMessage: (text: string, quotedSnippet?: string | null) => Promise<void>;
   isResponding: boolean;
   onUndoEdit: (messageId: string) => void;
-  onAcceptProposal?: (proposal: import('../types').ClusteringProposal, messageId: string) => void;
-  onRejectProposal?: (proposalId: string, messageId: string) => void;
   onClearContext: () => void;
   onClickContextChip: () => void;
   onCloseDock: () => void;
@@ -44,8 +42,6 @@ export function AssistantDock({
   onSendMessage,
   isResponding,
   onUndoEdit,
-  onAcceptProposal,
-  onRejectProposal,
   onClearContext,
   onClickContextChip,
   onCloseDock,
@@ -121,12 +117,6 @@ export function AssistantDock({
   // Suggested prompts per context kind
   const getSuggestedPrompts = () => {
     switch (context.kind) {
-      case 'survey':
-        return [
-          'Are these one gap or several?',
-          'Which notes seem to mix different assumptions?',
-          'What distinction should I make explicit?',
-        ];
       case 'whole_graph':
         return [
           'Which claim is most vulnerable?',
@@ -162,8 +152,6 @@ export function AssistantDock({
   // Dynamic input placeholder
   const getInputPlaceholder = () => {
     switch (context.kind) {
-      case 'survey':
-        return 'Ask about open problems or survey clusters...';
       case 'whole_graph':
         return 'Ask about your argument structure...';
       case 'claim':
@@ -371,64 +359,6 @@ export function AssistantDock({
                     )}
                   </div>
                   <span className="text-[10px] text-[#999] dark:text-[#666] opacity-0 group-hover:opacity-100 transition-opacity mt-1 pl-1 select-none">
-                    {msg.timestamp}
-                  </span>
-                </div>
-              );
-            }
-
-            if (msg.sender === 'clustering_proposal' && msg.proposals && msg.proposals.length > 0) {
-              return (
-                <div
-                  key={msg.id}
-                  className="group flex flex-col items-start w-full my-2 space-y-2.5"
-                >
-                  <div className="text-[13px] font-medium text-[#1a1a1a] dark:text-[#ededed]">
-                    {msg.text}
-                  </div>
-                  <div className="w-full space-y-2">
-                    {msg.proposals.map((prop) => (
-                      <div
-                        key={prop.id}
-                        className="w-full rounded-[10px] border border-[#ececec] dark:border-[#2a2a2a] bg-white dark:bg-[#1c1c1c] p-3 space-y-2 shadow-xs"
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="text-[13px] font-semibold text-[#1a1a1a] dark:text-[#f0f0f0] leading-snug">
-                            {prop.groupName}
-                          </div>
-                        </div>
-
-                        {/* Snippets list */}
-                        <div className="space-y-1 pl-2 border-l-2 border-[#2C5EA8]/40 dark:border-[#7DB4F8]/40 my-1">
-                          {prop.problemSnippets.map((snippet, sIdx) => (
-                            <div
-                              key={sIdx}
-                              className="text-[11px] text-[#666] dark:text-[#aaa] leading-tight line-clamp-1"
-                            >
-                              • {snippet}
-                            </div>
-                          ))}
-                        </div>
-
-                        {/* Accept / Reject actions */}
-                        <div className="flex items-center justify-end gap-2 pt-1 border-t border-[#f0f0f0] dark:border-[#282828]">
-                          <button
-                            onClick={() => onRejectProposal && onRejectProposal(prop.id, msg.id)}
-                            className="px-2.5 py-1 text-[11px] text-[#888] hover:text-[#ef4444] rounded cursor-pointer transition-colors"
-                          >
-                            Reject
-                          </button>
-                          <button
-                            onClick={() => onAcceptProposal && onAcceptProposal(prop, msg.id)}
-                            className="px-3 py-1 bg-[#1a1a1a] dark:bg-white text-white dark:text-[#1a1a1a] rounded text-[11px] font-medium hover:bg-[#333] dark:hover:bg-[#eee] transition-colors cursor-pointer"
-                          >
-                            Accept as candidate
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <span className="text-[10px] text-[#999] dark:text-[#666] opacity-0 group-hover:opacity-100 transition-opacity mt-1 pr-1 select-none">
                     {msg.timestamp}
                   </span>
                 </div>

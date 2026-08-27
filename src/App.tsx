@@ -8,18 +8,13 @@ import {
   LeftRailMark,
   AssistantContextInfo,
   AssistantThread,
-  OpenProblemNote,
-  CandidateQuestion,
-  ClusteringProposal,
 } from './types';
 import { PAPERS_CATALOG, EVIDENCE_TO_PAPER_MAP } from './data/papersData';
-import { INITIAL_OPEN_PROBLEMS, INITIAL_CANDIDATE_QUESTIONS } from './data/surveyData';
 import { GraphPane } from './components/GraphPane';
 import { CheckPane } from './components/CheckPane';
 import { GraphCanvas } from './components/GraphCanvas';
 import { PapersPane } from './components/PapersPane';
 import { ExperimentsPane } from './components/ExperimentsPane';
-import { SurveyPane } from './components/SurveyPane';
 import { AssistantDock } from './components/AssistantDock';
 import type { AssistantErrorResponse, AssistantResponse } from './assistantApi';
 import {
@@ -52,10 +47,6 @@ export default function App() {
       localStorage.setItem('epistemic_selected_tag', selectedTag);
     }
   }, [selectedTag]);
-
-  // Survey discovery state
-  const [openProblems, setOpenProblems] = useState<OpenProblemNote[]>(INITIAL_OPEN_PROBLEMS);
-  const [candidateQuestions, setCandidateQuestions] = useState<CandidateQuestion[]>(INITIAL_CANDIDATE_QUESTIONS);
 
   // Multi-Paper Tab Strip & Per-Paper State
   const [openPaperIds, setOpenPaperIds] = useState<string[]>(['p1']);
@@ -225,14 +216,6 @@ export default function App() {
       messages: [],
       lastUpdated: 'Just now',
     },
-    'thread-survey-survey': {
-      id: 'thread-survey-survey',
-      contextKind: 'survey',
-      contextId: 'survey',
-      contextLabel: 'survey — 6 open problems',
-      messages: [],
-      lastUpdated: 'Just now',
-    },
   });
   const [activeThreadId, setActiveThreadId] = useState<string>('thread-claim-c1');
 
@@ -310,14 +293,6 @@ export default function App() {
   const getCurrentContext = (): AssistantContextInfo => {
     const totalQuestions = tagFilteredQuestions.length;
     const totalClaims = tagFilteredQuestions.reduce((acc, q) => acc + q.claims.length, 0);
-
-    if (activeTab === 'survey') {
-      return {
-        kind: 'survey',
-        id: 'survey',
-        label: `survey — ${openProblems.length} open ${openProblems.length === 1 ? 'problem' : 'problems'}`,
-      };
-    }
 
     if (activeTab === 'papers') {
       const activeDoc = PAPERS_CATALOG.find((p) => p.id === activePaperId);
@@ -778,280 +753,6 @@ export default function App() {
     triggerHighlight(newEvId);
   };
 
-  // Open Problem Management Handlers
-  const handleAddOpenProblem = (text: string, citation?: string) => {
-    const newProblem: OpenProblemNote = {
-      id: `op-${Date.now()}`,
-      text,
-      citation,
-      createdAt: Date.now(),
-    };
-    setOpenProblems((prev) => [newProblem, ...prev]);
-  };
-
-  const handleUpdateOpenProblem = (id: string, text: string, citation?: string) => {
-    setOpenProblems((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, text, citation } : p))
-    );
-  };
-
-  const handleRemoveOpenProblem = (id: string) => {
-    setOpenProblems((prev) => prev.filter((p) => p.id !== id));
-    // Also unlink from all candidate questions
-    setCandidateQuestions((prev) =>
-      prev.map((c) => ({
-        ...c,
-        openProblemIds: c.openProblemIds.filter((pid) => pid !== id),
-      }))
-    );
-  };
-
-  // Candidate Question Management Handlers
-  const handleAddCandidateQuestion = (text?: string, linkedIds?: string[]) => {
-    const newCandidate: CandidateQuestion = {
-      id: `cand-${Date.now()}`,
-      text: text || 'New candidate question under investigation',
-      openProblemIds: linkedIds || [],
-      createdAt: Date.now(),
-    };
-    setCandidateQuestions((prev) => [newCandidate, ...prev]);
-  };
-
-  const handleUpdateCandidateQuestion = (id: string, text: string) => {
-    setCandidateQuestions((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, text } : c))
-    );
-  };
-
-  const handleRemoveCandidateQuestion = (id: string) => {
-    setCandidateQuestions((prev) => prev.filter((c) => c.id !== id));
-  };
-
-  const handleLinkProblemToCandidate = (candidateId: string, problemId: string) => {
-    setCandidateQuestions((prev) =>
-      prev.map((c) =>
-        c.id === candidateId && !c.openProblemIds.includes(problemId)
-          ? { ...c, openProblemIds: [...c.openProblemIds, problemId] }
-          : c
-      )
-    );
-  };
-
-  const handleUnlinkProblemFromCandidate = (candidateId: string, problemId: string) => {
-    setCandidateQuestions((prev) =>
-      prev.map((c) =>
-        c.id === candidateId
-          ? { ...c, openProblemIds: c.openProblemIds.filter((pid) => pid !== problemId) }
-          : c
-      )
-    );
-  };
-
-  // PROMOTE CANDIDATE TEST HANDLER
-  const handlePromoteCandidate = (candidate: CandidateQuestion, claimText: string) => {
-    const newQuestionId = `q-${Date.now()}`;
-    const newClaimId = `c-${Date.now()}`;
-
-    // Inherit active project tag (or default to tinyml if 'all')
-    const inheritedTags = selectedTag !== 'all' ? [selectedTag] : ['tinyml'];
-
-    // Collect linked open problems as preliminary weak evidence
-    const linkedProblems = candidate.openProblemIds
-      .map((pid) => openProblems.find((p) => p.id === pid))
-      .filter((p): p is OpenProblemNote => !!p);
-
-    const newEvidenceItems = linkedProblems.map((prob, idx) => ({
-      id: `ev-promoted-${Date.now()}-${idx}`,
-      kind: 'paper' as const,
-      typeLabel: 'PAPER',
-      title: prob.text,
-      citation: prob.citation || 'Survey open problem',
-    }));
-
-    const newQuestion: QuestionNode = {
-      id: newQuestionId,
-      type: 'QUESTION',
-      text: candidate.text,
-      tags: inheritedTags,
-      claims: [
-        {
-          id: newClaimId,
-          type: 'CLAIM',
-          text: claimText,
-          linkStatus: 'weak',
-          evidence: newEvidenceItems,
-          check: {
-            tag: 'TYPE MISMATCH',
-            tagColor: 'amber',
-            reasonText: 'Promoted candidate hypothesis from discovery survey.',
-            explanation:
-              'Claim formulated from open problem survey. Evidence items attached as initial weak observational references.',
-            checks: [
-              {
-                label: 'Type',
-                status: 'mismatch',
-                detail: 'Observational open problem references',
-              },
-              {
-                label: 'Scope',
-                status: 'partial',
-                detail: 'Survey open problems scope',
-              },
-              {
-                label: 'Target',
-                status: 'aligned',
-                detail: 'Direct target from candidate question',
-              },
-            ],
-          },
-        },
-      ],
-    };
-
-    // 1. Create Question and Claim in Graph
-    setQuestionsData((prev) => [newQuestion, ...prev]);
-
-    // 2. Remove the linked open problems from survey pile
-    const linkedSet = new Set(candidate.openProblemIds);
-    setOpenProblems((prev) => prev.filter((p) => !linkedSet.has(p.id)));
-
-    // 3. Remove the promoted candidate
-    setCandidateQuestions((prev) => prev.filter((c) => c.id !== candidate.id));
-
-    // 4. Switch to Detail Tab with new Claim selected
-    setSelectedNodeId(newClaimId);
-    setSelectedClaimId(newClaimId);
-    setActiveTab('detail');
-    triggerHighlight(newClaimId);
-  };
-
-  // CLUSTERING HANDLER (Sends notes to assistant)
-  const handleClusterNotes = (problemIds: string[]) => {
-    setIsAssistantOpen(true);
-    const problemsToCluster = problemIds
-      .map((id) => openProblems.find((p) => p.id === id))
-      .filter((p): p is OpenProblemNote => !!p);
-
-    if (problemsToCluster.length === 0) return;
-
-    // Partition problems into two sensible candidate clusters
-    const midpoint = Math.ceil(problemsToCluster.length / 2);
-    const group1 = problemsToCluster.slice(0, midpoint);
-    const group2 = problemsToCluster.slice(midpoint);
-
-    const proposals: ClusteringProposal[] = [
-      {
-        id: `prop-${Date.now()}-1`,
-        groupName:
-          group1[0]?.text.includes('SRAM') || group1[0]?.text.includes('quantization')
-            ? 'How do memory footprint and quantization affect transformer latency on microcontrollers?'
-            : 'What causes performance discrepancies in embedded sparse activation networks?',
-        problemIds: group1.map((p) => p.id),
-        problemSnippets: group1.map((p) => p.text),
-      },
-    ];
-
-    if (group2.length > 0) {
-      proposals.push({
-        id: `prop-${Date.now()}-2`,
-        groupName:
-          group2[0]?.text.includes('timer') || group2[0]?.text.includes('latency')
-            ? 'Do hardware timer variances invalidate cross-device TinyML benchmarks?'
-            : 'Which architectural bottlenecks dominate high-dimensional sparse coding recall?',
-        problemIds: group2.map((p) => p.id),
-        problemSnippets: group2.map((p) => p.text),
-      });
-    }
-
-    const proposalMsg: ChatMessage = {
-      id: `cluster-msg-${Date.now()}`,
-      sender: 'clustering_proposal',
-      text: `I've analyzed ${problemsToCluster.length} open problems and identified ${proposals.length} candidate grouping proposals:`,
-      timestamp: getFormattedTime(),
-      proposals,
-    };
-
-    const surveyThreadKey = 'thread-survey-survey';
-    setThreads((prev) => {
-      const current = prev[surveyThreadKey] || {
-        id: surveyThreadKey,
-        contextKind: 'survey',
-        contextId: 'survey',
-        contextLabel: `survey — ${openProblems.length} open problems`,
-        messages: [],
-        lastUpdated: 'Just now',
-      };
-
-      return {
-        ...prev,
-        [surveyThreadKey]: {
-          ...current,
-          messages: [...current.messages, proposalMsg],
-          lastUpdated: getFormattedTime(),
-        },
-      };
-    });
-    setActiveThreadId(surveyThreadKey);
-  };
-
-  // Accept / Reject Proposal from Assistant Dock
-  const handleAcceptProposal = (proposal: ClusteringProposal, messageId: string) => {
-    handleAddCandidateQuestion(proposal.groupName, proposal.problemIds);
-
-    // Remove accepted proposal from message
-    setThreads((prev) => {
-      const thread = prev[activeThreadId];
-      if (!thread) return prev;
-      return {
-        ...prev,
-        [activeThreadId]: {
-          ...thread,
-          messages: thread.messages.map((m) => {
-            if (m.id === messageId && m.proposals) {
-              const updatedProposals = m.proposals.filter((p) => p.id !== proposal.id);
-              return {
-                ...m,
-                proposals: updatedProposals,
-                text:
-                  updatedProposals.length === 0
-                    ? `Accepted grouping: "${proposal.groupName}" (candidate created).`
-                    : m.text,
-              };
-            }
-            return m;
-          }),
-        },
-      };
-    });
-  };
-
-  const handleRejectProposal = (proposalId: string, messageId: string) => {
-    setThreads((prev) => {
-      const thread = prev[activeThreadId];
-      if (!thread) return prev;
-      return {
-        ...prev,
-        [activeThreadId]: {
-          ...thread,
-          messages: thread.messages.map((m) => {
-            if (m.id === messageId && m.proposals) {
-              const updatedProposals = m.proposals.filter((p) => p.id !== proposalId);
-              return {
-                ...m,
-                proposals: updatedProposals,
-                text:
-                  updatedProposals.length === 0
-                    ? 'All proposals reviewed.'
-                    : m.text,
-              };
-            }
-            return m;
-          }),
-        },
-      };
-    });
-  };
-
   // Papers Tab actions
   const handleOpenPaper = (paperId: string) => {
     if (!openPaperIds.includes(paperId)) {
@@ -1135,13 +836,11 @@ export default function App() {
       };
     });
 
-    const contextData = context.kind === 'survey'
-      ? { openProblems, candidateQuestions }
-      : context.kind === 'paper'
-        ? PAPERS_CATALOG.find((paper) => paper.id === context.id)
-        : context.kind === 'claim'
-          ? { question: selectedQuestion, claim: selectedClaim }
-          : { questions: tagFilteredQuestions };
+    const contextData = context.kind === 'paper'
+      ? PAPERS_CATALOG.find((paper) => paper.id === context.id)
+      : context.kind === 'claim'
+        ? { question: selectedQuestion, claim: selectedClaim }
+        : { questions: tagFilteredQuestions };
 
     setIsAssistantResponding(true);
     let responseMsg: ChatMessage;
@@ -1232,8 +931,6 @@ export default function App() {
       if (activePaperId) {
         setActiveTab('papers');
       }
-    } else if (currentContext.kind === 'survey') {
-      setActiveTab('survey');
     }
   };
 
@@ -1270,7 +967,7 @@ export default function App() {
         id="app-top-header"
         className="h-11 px-6 border-b border-[#ececec] dark:border-[#262626] bg-white dark:bg-[#181818] flex items-center justify-between shrink-0 z-30 transition-colors"
       >
-        {/* Minimal text tabs (top-left: Graph | Survey | Detail | Papers | Experiments) */}
+        {/* Minimal text tabs (top-left: Graph | Detail | Papers | Experiments) */}
         <nav aria-label="Main Views" className="flex items-center gap-5 sm:gap-6">
           <button
             id="tab-graph-btn"
@@ -1282,17 +979,6 @@ export default function App() {
             }`}
           >
             Graph
-          </button>
-          <button
-            id="tab-survey-btn"
-            onClick={() => setActiveTab('survey')}
-            className={`text-[13px] font-medium transition-colors cursor-pointer py-2.5 ${
-              activeTab === 'survey'
-                ? 'text-[#1a1a1a] dark:text-white font-semibold border-b-2 border-[#1a1a1a] dark:border-white'
-                : 'text-[#888] dark:text-[#777] hover:text-[#1a1a1a] dark:hover:text-[#eee] border-b-2 border-transparent'
-            }`}
-          >
-            Survey
           </button>
           <button
             id="tab-detail-btn"
@@ -1479,23 +1165,6 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'survey' && (
-            <SurveyPane
-              openProblems={openProblems}
-              candidateQuestions={candidateQuestions}
-              onAddOpenProblem={handleAddOpenProblem}
-              onUpdateOpenProblem={handleUpdateOpenProblem}
-              onRemoveOpenProblem={handleRemoveOpenProblem}
-              onAddCandidateQuestion={handleAddCandidateQuestion}
-              onUpdateCandidateQuestion={handleUpdateCandidateQuestion}
-              onRemoveCandidateQuestion={handleRemoveCandidateQuestion}
-              onLinkProblemToCandidate={handleLinkProblemToCandidate}
-              onUnlinkProblemFromCandidate={handleUnlinkProblemFromCandidate}
-              onPromoteCandidate={handlePromoteCandidate}
-              onClusterNotes={handleClusterNotes}
-            />
-          )}
-
           {activeTab === 'detail' && (
             <div className="flex h-full w-full">
               {/* Column 1: Left Pane — Graph Tree */}
@@ -1552,7 +1221,6 @@ export default function App() {
               paperMarks={paperMarks}
               onAddMark={handleAddPaperMark}
               onAddEvidenceToClaim={handleAddEvidenceFromPaper}
-              onAddOpenProblem={handleAddOpenProblem}
               targetPassageParagraphId={targetPassageParagraphId}
               onAskAboutSelection={handleAskAboutSelection}
             />
@@ -1611,8 +1279,6 @@ export default function App() {
               onSendMessage={handleAssistantSendMessage}
               isResponding={isAssistantResponding}
               onUndoEdit={handleUndoEdit}
-              onAcceptProposal={handleAcceptProposal}
-              onRejectProposal={handleRejectProposal}
               onClearContext={handleClearContext}
               onClickContextChip={handleClickContextChip}
               onCloseDock={() => setIsAssistantOpen(false)}

@@ -9,7 +9,6 @@ here. There is no database yet.
 |---|---|
 | `initialData.ts` | the question/claim/evidence tree — Graph and Detail |
 | `papersData.ts` | full paper documents with sections, paragraphs, left-rail marks |
-| `surveyData.ts` | loose open-problem notes and candidate questions |
 | `experimentsData.ts` | experiment groups and their artifacts |
 
 ## What these are and are not

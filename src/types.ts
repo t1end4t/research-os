@@ -40,30 +40,9 @@ export interface ClaimNode {
 }
 
 export type FilterStatus = 'all' | 'weak' | 'missing';
-export type AppTab = 'graph' | 'survey' | 'detail' | 'papers' | 'experiments';
+export type AppTab = 'graph' | 'detail' | 'papers' | 'experiments';
 
-export type AssistantContextKind = 'whole_graph' | 'survey' | 'claim' | 'paper' | 'experiment';
-
-export interface OpenProblemNote {
-  id: string;
-  text: string;
-  citation?: string;
-  createdAt: number;
-}
-
-export interface CandidateQuestion {
-  id: string;
-  text: string;
-  openProblemIds: string[];
-  createdAt: number;
-}
-
-export interface ClusteringProposal {
-  id: string;
-  groupName: string;
-  problemIds: string[];
-  problemSnippets: string[];
-}
+export type AssistantContextKind = 'whole_graph' | 'claim' | 'paper' | 'experiment';
 
 export interface QuestionNode {
   id: string;
@@ -73,7 +52,7 @@ export interface QuestionNode {
   claims: ClaimNode[];
 }
 
-export type MessageSender = 'user' | 'assistant' | 'edit_confirmation' | 'clustering_proposal';
+export type MessageSender = 'user' | 'assistant' | 'edit_confirmation';
 
 export interface ChatMessage {
   id: string;
@@ -82,7 +61,6 @@ export interface ChatMessage {
   timestamp: string;
   modelId?: string;
   affectedNodeId?: string;
-  proposals?: ClusteringProposal[];
   undoAction?: {
     type: 'remove_evidence' | 'weaken_claim' | 'remove_experiment';
     claimId: string;
