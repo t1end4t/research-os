@@ -1,14 +1,15 @@
 # src/data/
 
-Hardcoded fixtures from the AI Studio export. Every tab currently reads from
-here. There is no database yet.
+Hardcoded fixtures from the AI Studio export. Questions, papers, and survey
+data are now seeds for workspace files. Experiments still read from here.
 
 ## Files
 
 | File | Feeds |
 |---|---|
-| `initialData.ts` | the question/claim/evidence tree — Graph and Detail |
-| `papersData.ts` | full paper documents with sections, paragraphs, left-rail marks |
+| `initialData.ts` | seed question/claim/evidence tree |
+| `papersData.ts` | seed paper documents, sections, paragraphs, left-rail marks |
+| `surveyData.ts` | seed loose open-problem notes and candidate questions |
 | `experimentsData.ts` | experiment groups and their artifacts |
 
 ## What these are and are not
@@ -18,10 +19,10 @@ carry the drift listed in root `CLAUDE.md` §6 — most importantly, an evidence
 item has no `user_reason` of its own. Do not derive the real table design from
 these files.
 
-**These are staying for now** (user decision). The eventual source of truth is a
-SQLite file inside a user-chosen local workspace folder; the app is an interface
-onto that folder. When that lands, these files become seed data and offline
-fixtures for evals, not a live read path.
+The active workspace now supplies Markdown prose, JSON metadata sidecars, and
+JSON links. The eventual source of truth remains versioned local storage inside
+that folder. These files stay as seeds and offline fixtures;
+`experimentsData.ts` remains the temporary live exception.
 
 ## Rules
 

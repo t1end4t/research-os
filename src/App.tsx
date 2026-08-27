@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { INITIAL_QUESTIONS_DATA } from './data/initialData';
 import {
   QuestionNode,
   ChatMessage,
@@ -8,15 +7,27 @@ import {
   LeftRailMark,
   AssistantContextInfo,
   AssistantThread,
+  OpenProblemNote,
+  CandidateQuestion,
+  ClusteringProposal,
+  EvidenceKind,
+  PaperDoc,
 } from './types';
-import { PAPERS_CATALOG, EVIDENCE_TO_PAPER_MAP } from './data/papersData';
 import { GraphPane } from './components/GraphPane';
 import { CheckPane } from './components/CheckPane';
 import { GraphCanvas } from './components/GraphCanvas';
 import { PapersPane } from './components/PapersPane';
 import { ExperimentsPane } from './components/ExperimentsPane';
+import { SurveyPane } from './components/SurveyPane';
 import { AssistantDock } from './components/AssistantDock';
+import {
+  createClaim,
+  createEvidence,
+  EvidenceDraft,
+} from './graphEdits';
 import type { AssistantErrorResponse, AssistantResponse } from './assistantApi';
+import type { DraggableResearchItem } from './researchItemDrag';
+import type { WorkspaceErrorResponse, WorkspaceResponse } from './workspaceApi';
 import {
   PanelRightClose,
   PanelRightOpen,
@@ -28,10 +39,12 @@ import {
 export default function App() {
   // App-level Navigation & Selection State
   const [activeTab, setActiveTab] = useState<AppTab>('graph');
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>('c1');
-  const [selectedClaimId, setSelectedClaimId] = useState<string | null>('c1');
-  const [questionsData, setQuestionsData] = useState<QuestionNode[]>(INITIAL_QUESTIONS_DATA);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedClaimId, setSelectedClaimId] = useState<string | null>(null);
+  const [questionsData, setQuestionsData] = useState<QuestionNode[]>([]);
   const [filter, setFilter] = useState<FilterStatus>('all');
+  const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
+  const [editingEvidenceKind, setEditingEvidenceKind] = useState<EvidenceKind | undefined>();
 
   // Project Tag Filter State (persistent across tab switches and reloads)
   const [selectedTag, setSelectedTag] = useState<string>(() => {
@@ -48,13 +61,66 @@ export default function App() {
     }
   }, [selectedTag]);
 
+  // Survey discovery state
+  const [openProblems, setOpenProblems] = useState<OpenProblemNote[]>([]);
+  const [candidateQuestions, setCandidateQuestions] = useState<CandidateQuestion[]>([]);
+
   // Multi-Paper Tab Strip & Per-Paper State
-  const [openPaperIds, setOpenPaperIds] = useState<string[]>(['p1']);
-  const [activePaperId, setActivePaperId] = useState<string | null>('p1');
+  const [papersCatalog, setPapersCatalog] = useState<PaperDoc[]>([]);
+  const [evidenceToPaperMap, setEvidenceToPaperMap] = useState<Record<string, string>>({});
+  const [openPaperIds, setOpenPaperIds] = useState<string[]>([]);
+  const [activePaperId, setActivePaperId] = useState<string | null>(null);
   const [paperScrollPositions, setPaperScrollPositions] = useState<Record<string, number>>({});
   const [paperZoomLevels, setPaperZoomLevels] = useState<Record<string, number>>({});
   const [paperMarks, setPaperMarks] = useState<Record<string, LeftRailMark[]>>({});
   const [targetPassageParagraphId, setTargetPassageParagraphId] = useState<string | null>(null);
+  const [workspacePath, setWorkspacePath] = useState('');
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+  const [isWorkspaceLoading, setIsWorkspaceLoading] = useState(true);
+  const initialQuestionsRef = useRef<QuestionNode[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadWorkspace = async () => {
+      try {
+        const response = await fetch('/api/workspace');
+        const body = await response.json() as WorkspaceResponse | WorkspaceErrorResponse;
+        if (!response.ok || !('questions' in body)) {
+          throw new Error('error' in body ? body.error : 'Workspace load failed.');
+        }
+        if (cancelled) return;
+
+        initialQuestionsRef.current = structuredClone(body.questions);
+        setQuestionsData(body.questions);
+        setPapersCatalog(body.papers);
+        setEvidenceToPaperMap(body.evidenceToPaperMap);
+        setOpenProblems(body.survey.openProblems);
+        setCandidateQuestions(body.survey.candidateQuestions);
+        setWorkspacePath(body.workspacePath);
+
+        const firstQuestion = body.questions[0];
+        const firstClaim = firstQuestion?.claims[0];
+        setSelectedNodeId(firstClaim?.id || firstQuestion?.id || null);
+        setSelectedClaimId(firstClaim?.id || null);
+
+        const firstPaperId = body.papers[0]?.id || null;
+        setOpenPaperIds(firstPaperId ? [firstPaperId] : []);
+        setActivePaperId(firstPaperId);
+      } catch (error) {
+        if (!cancelled) {
+          setWorkspaceError(error instanceof Error ? error.message : 'Workspace load failed.');
+        }
+      } finally {
+        if (!cancelled) setIsWorkspaceLoading(false);
+      }
+    };
+
+    void loadWorkspace();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Pane collapse states
   const [isCheckCollapsed, setIsCheckCollapsed] = useState<boolean>(false);
@@ -216,6 +282,14 @@ export default function App() {
       messages: [],
       lastUpdated: 'Just now',
     },
+    'thread-survey-survey': {
+      id: 'thread-survey-survey',
+      contextKind: 'survey',
+      contextId: 'survey',
+      contextLabel: 'survey — 6 open problems',
+      messages: [],
+      lastUpdated: 'Just now',
+    },
   });
   const [activeThreadId, setActiveThreadId] = useState<string>('thread-claim-c1');
 
@@ -273,15 +347,13 @@ export default function App() {
   };
 
   // Find the selected claim object across all filtered questions
-  const selectedClaim = tagFilteredQuestions
-    .flatMap((q) => q.claims)
-    .find((c) => c.id === selectedClaimId) ||
-    tagFilteredQuestions.flatMap((q) => q.claims)[0];
+  const selectedClaim = selectedClaimId
+    ? tagFilteredQuestions.flatMap((q) => q.claims).find((c) => c.id === selectedClaimId)
+    : undefined;
 
   // Find the selected question object
   const selectedQuestion = tagFilteredQuestions.find((q) => q.id === selectedNodeId) ||
-    tagFilteredQuestions.find((q) => q.claims.some((c) => c.id === selectedClaim?.id)) ||
-    tagFilteredQuestions[0];
+    tagFilteredQuestions.find((q) => q.claims.some((c) => c.id === selectedClaim?.id));
 
   // Helper to get formatted current time
   const getFormattedTime = () => {
@@ -294,8 +366,16 @@ export default function App() {
     const totalQuestions = tagFilteredQuestions.length;
     const totalClaims = tagFilteredQuestions.reduce((acc, q) => acc + q.claims.length, 0);
 
+    if (activeTab === 'survey') {
+      return {
+        kind: 'survey',
+        id: 'survey',
+        label: `survey — ${openProblems.length} open ${openProblems.length === 1 ? 'problem' : 'problems'}`,
+      };
+    }
+
     if (activeTab === 'papers') {
-      const activeDoc = PAPERS_CATALOG.find((p) => p.id === activePaperId);
+      const activeDoc = papersCatalog.find((paper) => paper.id === activePaperId);
       if (activeDoc) {
         return {
           kind: 'paper',
@@ -337,7 +417,7 @@ export default function App() {
         };
       }
 
-      const paper = PAPERS_CATALOG.find((p) => p.id === selectedNodeId);
+      const paper = papersCatalog.find((candidate) => candidate.id === selectedNodeId);
       if (paper) {
         return {
           kind: 'paper',
@@ -399,19 +479,78 @@ export default function App() {
   const handleSelectClaim = (claimId: string) => {
     setSelectedNodeId(claimId);
     setSelectedClaimId(claimId);
+    setEditingNodeId(null);
+    setEditingEvidenceKind(undefined);
     triggerHighlight(claimId);
   };
 
   // Synchronize selectedQuestionId when selectedNodeId changes to a question
   const handleSelectQuestion = (questionId: string) => {
     setSelectedNodeId(questionId);
-    const q = questionsData.find((item) => item.id === questionId);
-    if (q && q.claims.length > 0) {
-      setSelectedClaimId(q.claims[0].id);
-    } else {
-      setSelectedClaimId(null);
-    }
+    const question = questionsData.find((item) => item.id === questionId);
+    setSelectedClaimId(question?.claims[0]?.id || null);
+    setEditingNodeId(null);
+    setEditingEvidenceKind(undefined);
     triggerHighlight(questionId);
+  };
+
+  const handleToggleEditNode = (nodeId: string) => {
+    if (editingNodeId === nodeId) {
+      setEditingNodeId(null);
+      setEditingEvidenceKind(undefined);
+      return;
+    }
+    setEditingNodeId(nodeId);
+    setEditingEvidenceKind(undefined);
+  };
+
+  const handleEditClaim = (claimId: string, evidenceKind?: EvidenceKind) => {
+    if (!claimId) return;
+    setEditingNodeId(claimId);
+    setEditingEvidenceKind(evidenceKind);
+  };
+
+  const handleUpdateQuestion = (questionId: string, text: string, tags: string[]) => {
+    if (!text.trim()) return;
+    setQuestionsData((prev) =>
+      prev.map((question) =>
+        question.id === questionId
+          ? { ...question, text: text.trim(), tags }
+          : question
+      )
+    );
+  };
+
+  const handleUpdateClaim = (claimId: string, text: string) => {
+    if (!text.trim()) return;
+    setQuestionsData((prev) =>
+      prev.map((question) => ({
+        ...question,
+        claims: question.claims.map((claim) =>
+          claim.id === claimId
+            ? {
+                ...claim,
+                text: text.trim(),
+              }
+            : claim
+        ),
+      }))
+    );
+  };
+
+  const handleAddEvidence = (claimId: string, draft: EvidenceDraft) => {
+    const evidence = createEvidence(`evidence-${Date.now()}`, draft);
+    setQuestionsData((prev) =>
+      prev.map((question) => ({
+        ...question,
+        claims: question.claims.map((claim) =>
+          claim.id === claimId
+            ? { ...claim, evidence: [...claim.evidence, evidence] }
+            : claim
+        ),
+      }))
+    );
+    triggerHighlight(evidence.id);
   };
 
   // Clicking a node in the graph routes by type
@@ -425,14 +564,13 @@ export default function App() {
     setSelectedNodeId(node.id);
 
     if (node.type === 'QUESTION') {
-      const q = questionsData.find((item) => item.id === node.id || item.id === node.questionId);
-      if (q && q.claims.length > 0) {
-        setSelectedClaimId(q.claims[0].id);
-        triggerHighlight(q.claims[0].id);
-      } else {
-        setSelectedClaimId(null);
-        triggerHighlight(node.id);
-      }
+      const question = questionsData.find(
+        (item) => item.id === node.id || item.id === node.questionId
+      );
+      setSelectedClaimId(question?.claims[0]?.id || null);
+      setEditingNodeId(null);
+      setEditingEvidenceKind(undefined);
+      triggerHighlight(node.id);
       setActiveTab('detail');
       return;
     }
@@ -447,8 +585,8 @@ export default function App() {
 
     if (node.type === 'PAPER') {
       const paperId =
-        EVIDENCE_TO_PAPER_MAP[node.id] ||
-        (node.evidenceId && EVIDENCE_TO_PAPER_MAP[node.evidenceId]) ||
+        evidenceToPaperMap[node.id] ||
+        (node.evidenceId && evidenceToPaperMap[node.evidenceId]) ||
         node.id;
 
       if (!openPaperIds.includes(paperId)) {
@@ -456,7 +594,7 @@ export default function App() {
       }
       setActivePaperId(paperId);
 
-      const paperDoc = PAPERS_CATALOG.find((p) => p.id === paperId);
+      const paperDoc = papersCatalog.find((paper) => paper.id === paperId);
       let linkedParId: string | null = null;
       if (paperDoc) {
         for (const sec of paperDoc.sections) {
@@ -486,167 +624,59 @@ export default function App() {
       const parentClaimId = node.claimId || 'c1';
       setSelectedClaimId(parentClaimId);
       triggerHighlight(parentClaimId);
-      handleAddExperiment(parentClaimId);
       setActiveTab('detail');
       return;
     }
   };
 
-  // Weaken claim action: changes causal assertion to correlational formulation
-  const handleWeakenClaim = (claimId: string) => {
-    setQuestionsData((prev) =>
-      prev.map((q) => ({
-        ...q,
-        claims: q.claims.map((claim) => {
-          if (claim.id === claimId) {
-            const isCurrentlyWeakened = claim.text.includes('correlates with');
-            if (isCurrentlyWeakened) {
-              return {
-                ...claim,
-                text: 'Sparsity lowers overlap, and overlap causes interference.',
-                linkStatus: 'weak',
-                check: {
-                  ...claim.check,
-                  tag: 'TYPE MISMATCH',
-                  tagColor: 'amber',
-                  explanation:
-                    'Your claim is causal. Both findings are correlational - neither manipulates overlap while holding sparsity fixed.',
-                  checks: claim.check.checks.map((chk) =>
-                    chk.label === 'Type'
-                      ? {
-                          ...chk,
-                          status: 'mismatch',
-                          detail:
-                            'Causal claim backed only by observational correlations',
-                        }
-                      : chk
-                  ),
-                },
-              };
-            }
+  const handleDropResearchItem = (item: DraggableResearchItem) => {
+    if (item.type === 'QUESTION') {
+      const question = questionsData.find((candidate) => candidate.id === item.id);
+      if (!question) return;
+      handleSelectNodeFromGraph({
+        id: question.id,
+        type: 'QUESTION',
+        questionId: question.id,
+      });
+      return;
+    }
 
-            return {
-              ...claim,
-              text: 'Sparsity correlates with lower overlap, and overlap correlates with interference.',
-              linkStatus: 'holds',
-              check: {
-                ...claim.check,
-                tag: 'TYPE ALIGNED',
-                tagColor: 'emerald',
-                explanation:
-                  'Your claim has been adjusted to a correlational statement. The cited observational papers now directly support this formulation.',
-                checks: claim.check.checks.map((chk) =>
-                  chk.label === 'Type'
-                    ? {
-                        ...chk,
-                        status: 'aligned',
-                        detail:
-                          'Correlational claim supported by correlational literature',
-                      }
-                    : chk
-                ),
-              },
-            };
-          }
-          return claim;
-        }),
-      }))
-    );
-  };
+    if (item.type === 'CLAIM') {
+      const question = questionsData.find((candidate) =>
+        candidate.claims.some((claim) => claim.id === item.id)
+      );
+      if (!question) return;
+      handleSelectNodeFromGraph({
+        id: item.id,
+        type: 'CLAIM',
+        questionId: question.id,
+        claimId: item.id,
+      });
+      return;
+    }
 
-  // Add experiment action: populates an active causal test experiment
-  const handleAddExperiment = (claimId: string) => {
-    setQuestionsData((prev) =>
-      prev.map((q) => ({
-        ...q,
-        claims: q.claims.map((claim) => {
-          if (claim.id === claimId) {
-            const hasRunningExp = claim.evidence.some(
-              (e) => e.kind === 'experiment' && !e.isEmpty
-            );
-            if (hasRunningExp) {
-              return {
-                ...claim,
-                linkStatus: 'weak',
-                evidence: claim.evidence.map((e) =>
-                  e.kind === 'experiment'
-                    ? {
-                        ...e,
-                        title: '',
-                        placeholderText:
-                          'none yet - nothing here manipulates overlap',
-                        status: 'planned',
-                        isEmpty: true,
-                      }
-                    : e
-                ),
-                check: {
-                  ...claim.check,
-                  tag: 'TYPE MISMATCH',
-                  tagColor: 'amber',
-                  explanation:
-                    'Your claim is causal. Both findings are correlational - neither manipulates overlap while holding sparsity fixed.',
-                  checks: claim.check.checks.map((chk) =>
-                    chk.label === 'Type'
-                      ? {
-                          ...chk,
-                          status: 'mismatch',
-                          detail:
-                            'Causal claim backed only by observational correlations',
-                        }
-                      : chk
-                  ),
-                },
-              };
-            }
-
-            const existingExperimentIndex = claim.evidence.findIndex(
-              (e) => e.kind === 'experiment'
-            );
-            const newExpItem = {
-              id: 'e3',
-              kind: 'experiment' as const,
-              typeLabel: 'EXPERIMENT',
-              title:
-                'Subspace overlap manipulation under fixed sparsity in associative recall',
-              status: 'running' as const,
-              isEmpty: false,
-            };
-
-            let newEvidenceList = [...claim.evidence];
-            if (existingExperimentIndex >= 0) {
-              newEvidenceList[existingExperimentIndex] = newExpItem;
-            } else {
-              newEvidenceList.push(newExpItem);
-            }
-
-            return {
-              ...claim,
-              linkStatus: 'holds',
-              evidence: newEvidenceList,
-              check: {
-                ...claim.check,
-                tag: 'CAUSAL TEST ACTIVE',
-                tagColor: 'emerald',
-                explanation:
-                  'Active controlled experiment added. It directly manipulates overlap in high-dimensional codes while holding sparsity constant.',
-                checks: claim.check.checks.map((chk) =>
-                  chk.label === 'Type'
-                    ? {
-                        ...chk,
-                        status: 'aligned',
-                        detail:
-                          'Causal claim paired with active manipulation experiment',
-                      }
-                    : chk
-                ),
-              },
-            };
-          }
-          return claim;
-        }),
-      }))
-    );
+    const linkedPaper = questionsData
+      .flatMap((question) =>
+        question.claims.flatMap((claim) =>
+          claim.evidence
+            .filter((evidence) => evidence.kind === 'paper')
+            .map((evidence) => ({
+              questionId: question.id,
+              claimId: claim.id,
+              evidenceId: evidence.id,
+            }))
+        )
+      )
+      .find((paper) => paper.evidenceId === item.id);
+    const paperId = linkedPaper ? evidenceToPaperMap[linkedPaper.evidenceId] : item.id;
+    if (!paperId || !papersCatalog.some((paper) => paper.id === paperId)) return;
+    handleSelectNodeFromGraph({
+      id: linkedPaper?.evidenceId || paperId,
+      type: 'PAPER',
+      questionId: linkedPaper?.questionId || '',
+      claimId: linkedPaper?.claimId,
+      evidenceId: linkedPaper?.evidenceId,
+    });
   };
 
   // Reject claim action
@@ -668,61 +698,39 @@ export default function App() {
   };
 
   // Add Claim to Question action
-  const handleAddClaimToQuestion = (questionId: string) => {
-    const newClaimId = `claim-${Date.now()}`;
-    const newClaim = {
-      id: newClaimId,
-      type: 'CLAIM' as const,
-      text: 'New hypothesis under investigation.',
-      linkStatus: 'missing' as const,
-      evidence: [],
-      check: {
-        tag: 'NO EVIDENCE LINKED',
-        tagColor: 'red' as const,
-        reasonText: 'New claim created without supporting evidence.',
-        explanation: 'Attach literature evidence or experimental tests to evaluate this claim.',
-        checks: [
-          {
-            label: 'Type',
-            status: 'missing' as const,
-            detail: 'Unverified hypothesis',
-          },
-          {
-            label: 'Scope',
-            status: 'unverified' as const,
-            detail: 'Pending validation',
-          },
-          {
-            label: 'Target',
-            status: 'unverified' as const,
-            detail: 'Pending validation',
-          },
-        ],
-      },
-    };
+  const handleAddClaimToQuestion = (
+    questionId: string,
+    text: string,
+    userReason: string
+  ) => {
+    const newClaim = createClaim(`claim-${Date.now()}`, { text, userReason });
 
     setQuestionsData((prev) =>
       prev.map((q) =>
         q.id === questionId ? { ...q, claims: [...q.claims, newClaim] } : q
       )
     );
-    setSelectedNodeId(newClaimId);
-    setSelectedClaimId(newClaimId);
-    triggerHighlight(newClaimId);
+    setSelectedNodeId(newClaim.id);
+    setSelectedClaimId(newClaim.id);
+    triggerHighlight(newClaim.id);
   };
 
   // Reset to initial
   const handleReset = () => {
-    setQuestionsData(INITIAL_QUESTIONS_DATA);
-    setSelectedNodeId('c1');
-    setSelectedClaimId('c1');
+    const initialQuestions = structuredClone(initialQuestionsRef.current);
+    const firstQuestion = initialQuestions[0];
+    const firstClaim = firstQuestion?.claims[0];
+    setQuestionsData(initialQuestions);
+    setSelectedNodeId(firstClaim?.id || firstQuestion?.id || null);
+    setSelectedClaimId(firstClaim?.id || null);
   };
 
   // Add Evidence from Paper Tab
   const handleAddEvidenceFromPaper = (
     claimId: string,
     evidenceTitle: string,
-    citation: string
+    citation: string,
+    userReason: string
   ) => {
     const newEvId = `paper-ev-${Date.now()}`;
     const newEvidenceItem = {
@@ -731,6 +739,7 @@ export default function App() {
       typeLabel: 'PAPER',
       title: evidenceTitle,
       citation,
+      userReason,
     };
 
     setQuestionsData((prev) =>
@@ -751,6 +760,280 @@ export default function App() {
     );
 
     triggerHighlight(newEvId);
+  };
+
+  // Open Problem Management Handlers
+  const handleAddOpenProblem = (text: string, citation?: string) => {
+    const newProblem: OpenProblemNote = {
+      id: `op-${Date.now()}`,
+      text,
+      citation,
+      createdAt: Date.now(),
+    };
+    setOpenProblems((prev) => [newProblem, ...prev]);
+  };
+
+  const handleUpdateOpenProblem = (id: string, text: string, citation?: string) => {
+    setOpenProblems((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, text, citation } : p))
+    );
+  };
+
+  const handleRemoveOpenProblem = (id: string) => {
+    setOpenProblems((prev) => prev.filter((p) => p.id !== id));
+    // Also unlink from all candidate questions
+    setCandidateQuestions((prev) =>
+      prev.map((c) => ({
+        ...c,
+        openProblemIds: c.openProblemIds.filter((pid) => pid !== id),
+      }))
+    );
+  };
+
+  // Candidate Question Management Handlers
+  const handleAddCandidateQuestion = (text?: string, linkedIds?: string[]) => {
+    const newCandidate: CandidateQuestion = {
+      id: `cand-${Date.now()}`,
+      text: text || 'New candidate question under investigation',
+      openProblemIds: linkedIds || [],
+      createdAt: Date.now(),
+    };
+    setCandidateQuestions((prev) => [newCandidate, ...prev]);
+  };
+
+  const handleUpdateCandidateQuestion = (id: string, text: string) => {
+    setCandidateQuestions((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, text } : c))
+    );
+  };
+
+  const handleRemoveCandidateQuestion = (id: string) => {
+    setCandidateQuestions((prev) => prev.filter((c) => c.id !== id));
+  };
+
+  const handleLinkProblemToCandidate = (candidateId: string, problemId: string) => {
+    setCandidateQuestions((prev) =>
+      prev.map((c) =>
+        c.id === candidateId && !c.openProblemIds.includes(problemId)
+          ? { ...c, openProblemIds: [...c.openProblemIds, problemId] }
+          : c
+      )
+    );
+  };
+
+  const handleUnlinkProblemFromCandidate = (candidateId: string, problemId: string) => {
+    setCandidateQuestions((prev) =>
+      prev.map((c) =>
+        c.id === candidateId
+          ? { ...c, openProblemIds: c.openProblemIds.filter((pid) => pid !== problemId) }
+          : c
+      )
+    );
+  };
+
+  // PROMOTE CANDIDATE TEST HANDLER
+  const handlePromoteCandidate = (candidate: CandidateQuestion, claimText: string) => {
+    const newQuestionId = `q-${Date.now()}`;
+    const newClaimId = `c-${Date.now()}`;
+
+    // Inherit active project tag (or default to tinyml if 'all')
+    const inheritedTags = selectedTag !== 'all' ? [selectedTag] : ['tinyml'];
+
+    // Collect linked open problems as preliminary weak evidence
+    const linkedProblems = candidate.openProblemIds
+      .map((pid) => openProblems.find((p) => p.id === pid))
+      .filter((p): p is OpenProblemNote => !!p);
+
+    const newEvidenceItems = linkedProblems.map((prob, idx) => ({
+      id: `ev-promoted-${Date.now()}-${idx}`,
+      kind: 'paper' as const,
+      typeLabel: 'PAPER',
+      title: prob.text,
+      citation: prob.citation || 'Survey open problem',
+    }));
+
+    const newQuestion: QuestionNode = {
+      id: newQuestionId,
+      type: 'QUESTION',
+      text: candidate.text,
+      tags: inheritedTags,
+      claims: [
+        {
+          id: newClaimId,
+          type: 'CLAIM',
+          text: claimText,
+          linkStatus: 'weak',
+          evidence: newEvidenceItems,
+          check: {
+            tag: 'TYPE MISMATCH',
+            tagColor: 'amber',
+            reasonText: 'Promoted candidate hypothesis from discovery survey.',
+            explanation:
+              'Claim formulated from open problem survey. Evidence items attached as initial weak observational references.',
+            checks: [
+              {
+                label: 'Type',
+                status: 'mismatch',
+                detail: 'Observational open problem references',
+              },
+              {
+                label: 'Scope',
+                status: 'partial',
+                detail: 'Survey open problems scope',
+              },
+              {
+                label: 'Target',
+                status: 'aligned',
+                detail: 'Direct target from candidate question',
+              },
+            ],
+          },
+        },
+      ],
+    };
+
+    // 1. Create Question and Claim in Graph
+    setQuestionsData((prev) => [newQuestion, ...prev]);
+
+    // 2. Remove the linked open problems from survey pile
+    const linkedSet = new Set(candidate.openProblemIds);
+    setOpenProblems((prev) => prev.filter((p) => !linkedSet.has(p.id)));
+
+    // 3. Remove the promoted candidate
+    setCandidateQuestions((prev) => prev.filter((c) => c.id !== candidate.id));
+
+    // 4. Switch to Detail Tab with new Claim selected
+    setSelectedNodeId(newClaimId);
+    setSelectedClaimId(newClaimId);
+    setActiveTab('detail');
+    triggerHighlight(newClaimId);
+  };
+
+  // CLUSTERING HANDLER (Sends notes to assistant)
+  const handleClusterNotes = (problemIds: string[]) => {
+    setIsAssistantOpen(true);
+    const problemsToCluster = problemIds
+      .map((id) => openProblems.find((p) => p.id === id))
+      .filter((p): p is OpenProblemNote => !!p);
+
+    if (problemsToCluster.length === 0) return;
+
+    // Partition problems into two sensible candidate clusters
+    const midpoint = Math.ceil(problemsToCluster.length / 2);
+    const group1 = problemsToCluster.slice(0, midpoint);
+    const group2 = problemsToCluster.slice(midpoint);
+
+    const proposals: ClusteringProposal[] = [
+      {
+        id: `prop-${Date.now()}-1`,
+        groupName:
+          group1[0]?.text.includes('SRAM') || group1[0]?.text.includes('quantization')
+            ? 'How do memory footprint and quantization affect transformer latency on microcontrollers?'
+            : 'What causes performance discrepancies in embedded sparse activation networks?',
+        problemIds: group1.map((p) => p.id),
+        problemSnippets: group1.map((p) => p.text),
+      },
+    ];
+
+    if (group2.length > 0) {
+      proposals.push({
+        id: `prop-${Date.now()}-2`,
+        groupName:
+          group2[0]?.text.includes('timer') || group2[0]?.text.includes('latency')
+            ? 'Do hardware timer variances invalidate cross-device TinyML benchmarks?'
+            : 'Which architectural bottlenecks dominate high-dimensional sparse coding recall?',
+        problemIds: group2.map((p) => p.id),
+        problemSnippets: group2.map((p) => p.text),
+      });
+    }
+
+    const proposalMsg: ChatMessage = {
+      id: `cluster-msg-${Date.now()}`,
+      sender: 'clustering_proposal',
+      text: `I've analyzed ${problemsToCluster.length} open problems and identified ${proposals.length} candidate grouping proposals:`,
+      timestamp: getFormattedTime(),
+      proposals,
+    };
+
+    const surveyThreadKey = 'thread-survey-survey';
+    setThreads((prev) => {
+      const current = prev[surveyThreadKey] || {
+        id: surveyThreadKey,
+        contextKind: 'survey',
+        contextId: 'survey',
+        contextLabel: `survey — ${openProblems.length} open problems`,
+        messages: [],
+        lastUpdated: 'Just now',
+      };
+
+      return {
+        ...prev,
+        [surveyThreadKey]: {
+          ...current,
+          messages: [...current.messages, proposalMsg],
+          lastUpdated: getFormattedTime(),
+        },
+      };
+    });
+    setActiveThreadId(surveyThreadKey);
+  };
+
+  // Accept / Reject Proposal from Assistant Dock
+  const handleAcceptProposal = (proposal: ClusteringProposal, messageId: string) => {
+    handleAddCandidateQuestion(proposal.groupName, proposal.problemIds);
+
+    // Remove accepted proposal from message
+    setThreads((prev) => {
+      const thread = prev[activeThreadId];
+      if (!thread) return prev;
+      return {
+        ...prev,
+        [activeThreadId]: {
+          ...thread,
+          messages: thread.messages.map((m) => {
+            if (m.id === messageId && m.proposals) {
+              const updatedProposals = m.proposals.filter((p) => p.id !== proposal.id);
+              return {
+                ...m,
+                proposals: updatedProposals,
+                text:
+                  updatedProposals.length === 0
+                    ? `Accepted grouping: "${proposal.groupName}" (candidate created).`
+                    : m.text,
+              };
+            }
+            return m;
+          }),
+        },
+      };
+    });
+  };
+
+  const handleRejectProposal = (proposalId: string, messageId: string) => {
+    setThreads((prev) => {
+      const thread = prev[activeThreadId];
+      if (!thread) return prev;
+      return {
+        ...prev,
+        [activeThreadId]: {
+          ...thread,
+          messages: thread.messages.map((m) => {
+            if (m.id === messageId && m.proposals) {
+              const updatedProposals = m.proposals.filter((p) => p.id !== proposalId);
+              return {
+                ...m,
+                proposals: updatedProposals,
+                text:
+                  updatedProposals.length === 0
+                    ? 'All proposals reviewed.'
+                    : m.text,
+              };
+            }
+            return m;
+          }),
+        },
+      };
+    });
   };
 
   // Papers Tab actions
@@ -836,11 +1119,15 @@ export default function App() {
       };
     });
 
-    const contextData = context.kind === 'paper'
-      ? PAPERS_CATALOG.find((paper) => paper.id === context.id)
-      : context.kind === 'claim'
-        ? { question: selectedQuestion, claim: selectedClaim }
-        : { questions: tagFilteredQuestions };
+    const contextData = context.kind === 'survey'
+      ? { openProblems, candidateQuestions }
+      : context.kind === 'paper'
+        ? papersCatalog.find((paper) => paper.id === context.id)
+        : context.kind === 'claim'
+          ? { question: selectedQuestion, claim: selectedClaim }
+          : context.id && context.id !== 'whole_graph'
+            ? { question: tagFilteredQuestions.find((question) => question.id === context.id) }
+          : { questions: tagFilteredQuestions };
 
     setIsAssistantResponding(true);
     let responseMsg: ChatMessage;
@@ -914,10 +1201,6 @@ export default function App() {
           ),
         }))
       );
-    } else if (undo.type === 'weaken_claim') {
-      handleWeakenClaim(undo.claimId);
-    } else if (undo.type === 'remove_experiment') {
-      handleAddExperiment(undo.claimId);
     }
   };
 
@@ -931,6 +1214,8 @@ export default function App() {
       if (activePaperId) {
         setActiveTab('papers');
       }
+    } else if (currentContext.kind === 'survey') {
+      setActiveTab('survey');
     }
   };
 
@@ -960,6 +1245,28 @@ export default function App() {
 
   const allThreadsList: AssistantThread[] = Object.values(threads);
 
+  if (isWorkspaceLoading) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-[#fcfcfc] text-sm text-stone-500 dark:bg-[#121212] dark:text-stone-400">
+        Loading workspace…
+      </div>
+    );
+  }
+
+  if (workspaceError) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-[#fcfcfc] p-8 dark:bg-[#121212]">
+        <div className="max-w-xl rounded-lg border border-red-200 bg-white p-5 text-sm text-red-700 shadow-sm dark:border-red-950 dark:bg-[#181818] dark:text-red-300">
+          <div className="font-semibold">Workspace unavailable</div>
+          <div className="mt-2 font-mono text-xs">{workspaceError}</div>
+          <div className="mt-3 text-xs text-stone-500 dark:text-stone-400">
+            Set INSTRUMENT_WORKSPACE_DIR to a repo containing the Markdown workspace folders.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="relative flex flex-col h-screen w-screen overflow-hidden bg-[#fcfcfc] dark:bg-[#121212] text-[#1a1a1a] dark:text-[#ededed] font-sans transition-colors duration-150">
       {/* Top Header Bar: Minimal Text Tabs on Top-Left + Tag Filter + Action Controls on Right */}
@@ -967,7 +1274,7 @@ export default function App() {
         id="app-top-header"
         className="h-11 px-6 border-b border-[#ececec] dark:border-[#262626] bg-white dark:bg-[#181818] flex items-center justify-between shrink-0 z-30 transition-colors"
       >
-        {/* Minimal text tabs (top-left: Graph | Detail | Papers | Experiments) */}
+        {/* Minimal text tabs (top-left: Graph | Survey | Detail | Papers | Experiments) */}
         <nav aria-label="Main Views" className="flex items-center gap-5 sm:gap-6">
           <button
             id="tab-graph-btn"
@@ -979,6 +1286,17 @@ export default function App() {
             }`}
           >
             Graph
+          </button>
+          <button
+            id="tab-survey-btn"
+            onClick={() => setActiveTab('survey')}
+            className={`text-[13px] font-medium transition-colors cursor-pointer py-2.5 ${
+              activeTab === 'survey'
+                ? 'text-[#1a1a1a] dark:text-white font-semibold border-b-2 border-[#1a1a1a] dark:border-white'
+                : 'text-[#888] dark:text-[#777] hover:text-[#1a1a1a] dark:hover:text-[#eee] border-b-2 border-transparent'
+            }`}
+          >
+            Survey
           </button>
           <button
             id="tab-detail-btn"
@@ -1017,6 +1335,13 @@ export default function App() {
 
         {/* Right-aligned context & panel controls */}
         <div className="flex items-center gap-2.5">
+          <span
+            className="max-w-48 truncate font-mono text-[10px] text-[#999] dark:text-[#777]"
+            title={workspacePath}
+          >
+            {workspacePath}
+          </span>
+
           {/* Note when window is too narrow for assistant */}
           {isTooNarrowForAssistant && (
             <span
@@ -1165,6 +1490,23 @@ export default function App() {
             />
           )}
 
+          {activeTab === 'survey' && (
+            <SurveyPane
+              openProblems={openProblems}
+              candidateQuestions={candidateQuestions}
+              onAddOpenProblem={handleAddOpenProblem}
+              onUpdateOpenProblem={handleUpdateOpenProblem}
+              onRemoveOpenProblem={handleRemoveOpenProblem}
+              onAddCandidateQuestion={handleAddCandidateQuestion}
+              onUpdateCandidateQuestion={handleUpdateCandidateQuestion}
+              onRemoveCandidateQuestion={handleRemoveCandidateQuestion}
+              onLinkProblemToCandidate={handleLinkProblemToCandidate}
+              onUnlinkProblemFromCandidate={handleUnlinkProblemFromCandidate}
+              onPromoteCandidate={handlePromoteCandidate}
+              onClusterNotes={handleClusterNotes}
+            />
+          )}
+
           {activeTab === 'detail' && (
             <div className="flex h-full w-full">
               {/* Column 1: Left Pane — Graph Tree */}
@@ -1179,8 +1521,15 @@ export default function App() {
                   selectedNodeId={selectedNodeId}
                   selectedClaimId={selectedClaimId}
                   selectedQuestionId={selectedQuestion?.id}
+                  editingNodeId={editingNodeId}
+                  editingEvidenceKind={editingEvidenceKind}
                   onSelectClaim={handleSelectClaim}
                   onSelectQuestion={handleSelectQuestion}
+                  onToggleEdit={handleToggleEditNode}
+                  onUpdateQuestion={handleUpdateQuestion}
+                  onAddClaim={handleAddClaimToQuestion}
+                  onUpdateClaim={handleUpdateClaim}
+                  onAddEvidence={handleAddEvidence}
                   highlightedNodeId={highlightedNodeId}
                 />
               </section>
@@ -1194,10 +1543,8 @@ export default function App() {
                   <CheckPane
                     claim={selectedClaim}
                     selectedQuestion={selectedQuestion}
-                    onWeakenClaim={handleWeakenClaim}
-                    onAddExperiment={handleAddExperiment}
                     onRejectClaim={handleRejectClaim}
-                    onAddClaimToQuestion={handleAddClaimToQuestion}
+                    onEditClaim={handleEditClaim}
                     onReset={handleReset}
                   />
                 </section>
@@ -1208,6 +1555,8 @@ export default function App() {
           {activeTab === 'papers' && (
             <PapersPane
               questions={tagFilteredQuestions}
+              papers={papersCatalog}
+              evidenceToPaperMap={evidenceToPaperMap}
               selectedClaimId={selectedClaimId}
               openPaperIds={openPaperIds}
               activePaperId={activePaperId}
@@ -1221,6 +1570,7 @@ export default function App() {
               paperMarks={paperMarks}
               onAddMark={handleAddPaperMark}
               onAddEvidenceToClaim={handleAddEvidenceFromPaper}
+              onAddOpenProblem={handleAddOpenProblem}
               targetPassageParagraphId={targetPassageParagraphId}
               onAskAboutSelection={handleAskAboutSelection}
             />
@@ -1279,11 +1629,14 @@ export default function App() {
               onSendMessage={handleAssistantSendMessage}
               isResponding={isAssistantResponding}
               onUndoEdit={handleUndoEdit}
+              onAcceptProposal={handleAcceptProposal}
+              onRejectProposal={handleRejectProposal}
               onClearContext={handleClearContext}
               onClickContextChip={handleClickContextChip}
               onCloseDock={() => setIsAssistantOpen(false)}
               quotedSnippet={assistantQuotedSnippet}
               onClearQuotedSnippet={() => setAssistantQuotedSnippet(null)}
+              onDropResearchItem={handleDropResearchItem}
             />
           </aside>
         )}

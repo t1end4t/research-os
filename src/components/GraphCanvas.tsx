@@ -1,4 +1,5 @@
 import React, { useState, useRef, useMemo, useCallback } from 'react';
+import { setResearchItemDragData } from '../researchItemDrag';
 import { QuestionNode, FilterStatus, LinkStatus } from '../types';
 import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 
@@ -691,6 +692,8 @@ export function GraphCanvas({
                 const isHovered = hoveredNodeId === node.id;
                 const isSelected = selectedNodeId === node.id;
                 const statusBarColor = getStatusBarColor(node.linkStatus);
+                const isDraggable =
+                  node.type === 'QUESTION' || node.type === 'CLAIM' || node.type === 'PAPER';
 
                 let nodeTypeClasses = '';
                 if (node.type === 'GHOST') {
@@ -733,6 +736,20 @@ export function GraphCanvas({
                     style={{ opacity }}
                   >
                     <div
+                      draggable={isDraggable}
+                      onDragStart={(event) => {
+                        if (!isDraggable) return;
+                        event.stopPropagation();
+                        setTooltip(null);
+                        setResearchItemDragData(event.dataTransfer, {
+                          id: node.id,
+                          type: node.type,
+                          label: node.fullText,
+                        });
+                      }}
+                      onMouseDown={(event) => {
+                        if (isDraggable) event.stopPropagation();
+                      }}
                       onClick={(e) => {
                         e.stopPropagation();
                         onSelectNode({
@@ -762,7 +779,7 @@ export function GraphCanvas({
                         setHoveredNodeId(null);
                         setTooltip(null);
                       }}
-                      className={`w-full h-full relative rounded-[10px] border transition-colors duration-150 overflow-hidden cursor-pointer select-none px-3.5 py-2.5 flex flex-col justify-center ${nodeTypeClasses}`}
+                      className={`w-full h-full relative rounded-[10px] border transition-colors duration-150 overflow-hidden select-none px-3.5 py-2.5 flex flex-col justify-center ${isDraggable ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'} ${nodeTypeClasses}`}
                     >
                       {/* Left-edge 3px link status bar inside rounded border */}
                       {node.type !== 'QUESTION' && node.linkStatus && (
@@ -921,5 +938,4 @@ export function GraphCanvas({
     </div>
   );
 }
-
 

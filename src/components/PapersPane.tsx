@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { setResearchItemDragData } from '../researchItemDrag';
 import { PaperDoc, LeftRailMark, QuestionNode } from '../types';
-import { PAPERS_CATALOG, getPaperDoc } from '../data/papersData';
 import {
   ZoomIn,
   ZoomOut,
@@ -12,6 +12,8 @@ import {
 
 interface PapersPaneProps {
   questions: QuestionNode[];
+  papers: PaperDoc[];
+  evidenceToPaperMap: Record<string, string>;
   selectedClaimId: string | null;
   openPaperIds: string[];
   activePaperId: string | null;
@@ -28,14 +30,17 @@ interface PapersPaneProps {
     claimId: string,
     evidenceTitle: string,
     citation: string,
-    supportReason?: string
+    supportReason: string
   ) => void;
+  onAddOpenProblem?: (text: string, citation?: string) => void;
   onAskAboutSelection: (snippet: string, paperId: string) => void;
   targetPassageParagraphId?: string | null;
 }
 
 export function PapersPane({
   questions,
+  papers,
+  evidenceToPaperMap,
   selectedClaimId,
   openPaperIds,
   activePaperId,
@@ -49,6 +54,7 @@ export function PapersPane({
   paperMarks,
   onAddMark,
   onAddEvidenceToClaim,
+  onAddOpenProblem,
   onAskAboutSelection,
   targetPassageParagraphId,
 }: PapersPaneProps) {
@@ -79,9 +85,14 @@ export function PapersPane({
     }))
   );
 
+  const getPaperDoc = (paperIdOrEvidenceId: string) => {
+    const paperId = evidenceToPaperMap[paperIdOrEvidenceId] || paperIdOrEvidenceId;
+    return papers.find((paper) => paper.id === paperId);
+  };
+
   // Active paper object
   const activePaper: PaperDoc | undefined = activePaperId
-    ? PAPERS_CATALOG.find((p) => p.id === activePaperId)
+    ? papers.find((paper) => paper.id === activePaperId)
     : undefined;
 
   const currentZoomLevel = activePaperId ? paperZoomLevels[activePaperId] ?? 100 : 100;
@@ -246,6 +257,37 @@ export function PapersPane({
   const handleCreateEvidence = () => {
     if (!selectionRange || !supportReasonText.trim() || !activePaper) return;
 
+    if (popoverClaimId === 'open_problems_survey') {
+      // Create open problem note
+      if (onAddOpenProblem) {
+        const citation = `${activePaper.authors.split('&')[0].trim()} et al. ${activePaper.year}: "${selectionRange.text.slice(0, 60)}..."`;
+        onAddOpenProblem(supportReasonText.trim(), citation);
+      }
+
+      // Add mark to left rail
+      const containerHeight = docContainerRef.current?.scrollHeight || 1000;
+      const yPercent = Math.min(
+        Math.max(Math.round((selectionRange.top / containerHeight) * 100), 5),
+        95
+      );
+
+      const newMark: LeftRailMark = {
+        id: `mark-${Date.now()}`,
+        paragraphId: selectionRange.paragraphId || `par-${Date.now()}`,
+        yPercent,
+        type: 'amber',
+        label: `Open problem: ${supportReasonText.slice(0, 20)}...`,
+        snippet: selectionRange.text,
+      };
+
+      onAddMark(activePaper.id, newMark);
+      setIsEvidencePopoverOpen(false);
+      setSelectionRange(null);
+      setSupportReasonText('');
+      window.getSelection()?.removeAllRanges();
+      return;
+    }
+
     // Add evidence to graph state
     onAddEvidenceToClaim(
       popoverClaimId,
@@ -305,7 +347,7 @@ export function PapersPane({
         className="h-8 px-4 bg-[#f6f6f6] dark:bg-[#181818] border-b border-[#ececec] dark:border-[#262626] flex items-center gap-1.5 shrink-0 select-none overflow-x-auto whitespace-nowrap"
       >
         {openPaperIds.map((pId) => {
-          const paper = PAPERS_CATALOG.find((p) => p.id === pId);
+          const paper = papers.find((candidate) => candidate.id === pId);
           if (!paper) return null;
           const isActive = paper.id === activePaperId;
           const truncatedTitle =
@@ -316,8 +358,16 @@ export function PapersPane({
           return (
             <div
               key={paper.id}
+              draggable
+              onDragStart={(event) =>
+                setResearchItemDragData(event.dataTransfer, {
+                  id: paper.id,
+                  type: 'PAPER',
+                  label: paper.title,
+                })
+              }
               onClick={() => onSelectPaperTab(paper.id)}
-              className={`group flex items-center gap-1.5 px-3 py-1 text-[12px] rounded-t cursor-pointer transition-colors shrink-0 max-w-[240px] ${
+              className={`group flex items-center gap-1.5 px-3 py-1 text-[12px] rounded-t cursor-grab active:cursor-grabbing transition-colors shrink-0 max-w-[240px] ${
                 isActive
                   ? 'bg-white dark:bg-[#1f1f1f] border-b-2 border-[#1a1a1a] dark:border-white text-[#1a1a1a] dark:text-[#f0f0f0] font-medium'
                   : 'bg-transparent border-transparent text-[#777] dark:text-[#888] hover:text-[#1a1a1a] dark:hover:text-white hover:bg-[#eaeaea] dark:hover:bg-[#252525]'
@@ -693,6 +743,9 @@ export function PapersPane({
                         onChange={(e) => setPopoverClaimId(e.target.value)}
                         className="w-full bg-[#fcfcfc] dark:bg-[#252525] border border-[#ececec] dark:border-[#333333] rounded px-2 py-1.5 text-[12px] text-[#1a1a1a] dark:text-[#dedede] focus:outline-hidden"
                       >
+                        <option value="open_problems_survey">
+                          -&gt; Open problems (no claim yet)
+                        </option>
                         {allClaims.map((c) => (
                           <option key={c.id} value={c.id}>
                             {c.text.length > 40
@@ -706,13 +759,19 @@ export function PapersPane({
                     {/* Single required text field */}
                     <div className="space-y-1">
                       <label className="text-[10px] uppercase font-bold text-[#888] dark:text-[#777]">
-                        Why does this support the claim? *
+                        {popoverClaimId === 'open_problems_survey'
+                          ? 'What is still open here? *'
+                          : 'Why does this support the claim? *'}
                       </label>
                       <textarea
                         rows={2}
                         value={supportReasonText}
                         onChange={(e) => setSupportReasonText(e.target.value)}
-                        placeholder="e.g. Demonstrates that orthogonal activations prevent cross-talk..."
+                        placeholder={
+                          popoverClaimId === 'open_problems_survey'
+                            ? 'e.g. Memory access bottlenecks under INT4 quantization...'
+                            : 'e.g. Demonstrates that orthogonal activations prevent cross-talk...'
+                        }
                         className="w-full bg-[#fcfcfc] dark:bg-[#252525] border border-[#ececec] dark:border-[#333333] rounded p-2 text-[12px] text-[#1a1a1a] dark:text-[#dedede] placeholder-[#aaa] dark:placeholder-[#666] focus:outline-hidden resize-none"
                       />
                     </div>

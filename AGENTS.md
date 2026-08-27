@@ -83,6 +83,22 @@ The working view. Three columns.
   *Add experiment*, *Reject*.
 - **Right:** the assistant dock.
 
+### SURVEY
+For when there is no question yet. Two columns.
+- **Left — OPEN PROBLEMS:** loose one-line notes, form "what is still open
+  here?", each with a source. No parent.
+- **Right — CANDIDATE QUESTIONS:** groupings of those notes.
+
+A candidate is promoted to a real `QUESTION` only after the user writes a claim
+that answers it **and** confirms the claim could be false **and** could be
+settled within a year.
+
+**Hard stop at 15 loose notes with fewer than 3 candidates: no new notes until
+three candidates exist.** This is deliberate friction, not a bug. Do not remove
+it, do not add an override flag, do not make it a warning toast.
+
+Promotion is one-way. There is no demote.
+
 ### PAPERS
 A reader. Multiple papers open as tabs, each keeping its own scroll, zoom, and
 assistant thread.
@@ -125,8 +141,8 @@ left edge, toggled with `Cmd/Ctrl+J`. **Not per-tab.**
 
 ### Context and threads
 The dock follows the app's selection. A context chip above the input shows what
-it is looking at: whole graph, a claim, a paper, or an experiment. Each context
-has its own thread, and threads persist. Switching context
+it is looking at: whole graph, a claim, a paper, an experiment, or the survey
+pile. Each context has its own thread, and threads persist. Switching context
 switches the transcript; **it never appends across contexts.**
 
 ### MAY do
@@ -140,6 +156,8 @@ switches the transcript; **it never appends across contexts.**
 - **Edit graph structure on instruction.** Five operations only — add, move,
   rename, split, delete — as structured output. Show each edit as a confirmation
   line with an Undo link.
+- **Cluster loose survey notes** into proposed groupings for the user to accept
+  or reject.
 - **Answer questions about an open paper.**
 
 ### MUST NOT do
@@ -148,12 +166,13 @@ switches the transcript; **it never appends across contexts.**
   committed a reason first; if the model writes it, the model grades its own
   work and the whole tool becomes decoration. If a user asks for it, refuse in
   the transcript.
+- Write the promote claim or tick the promote checkboxes.
 - **Summarize a paper.** Summarizing replaces the reading that produces
   understanding.
 - Invent a claim, a paper, or a finding the user did not state.
 - **Generate "interesting research questions" from a topic.** Questions must
-  come from structure — an unsupported claim or an unresolved mismatch — never
-  from a topic prompt.
+  come from structure — an unsupported claim, an unresolved mismatch, a cluster
+  of open problems — never from a topic prompt.
 - Set or change a link status without the user's reason present.
 
 ### Model configuration
@@ -182,7 +201,8 @@ switches the transcript; **it never appends across contexts.**
 ## 5. Standing rules
 
 1. When a proposed feature would remove friction, check first whether that
-   friction **is** the mechanism. Required reason fields are deliberate.
+   friction **is** the mechanism. Required reason fields, the 15-note stop, and
+   the promote test are all deliberate.
 2. **Prefer refusing a feature to weakening the model boundary in §4.**
 3. Storage is SQLite, one file, local. No auth, no accounts, no remote server.
    Bind to `127.0.0.1` only.
@@ -207,11 +227,14 @@ TypeScript only. No Python in this repo.
 | Storage | SQLite, one file, inside the active workspace folder |
 | LLM | `@earendil-works/pi-agent-core` via 9router; pinned `cx/gpt-5.6-sol` |
 
-**Current state:** graph, paper, and experiment data remain hardcoded
-fixtures, and `src/App.tsx` still holds all UI state. A loopback Express server
-now hosts Vite and `/api/assistant`; Pi chat uses 9router with one strict reply
-tool and isolated in-memory context threads. There is still no SQLite or domain
-tool for checks or graph edits.
+**Current state:** graph, survey, and paper data load from Markdown prose, JSON
+metadata sidecars, and explicit JSON link files in the active workspace;
+experiment data remains a hardcoded fixture. Workspace files are read-only and
+UI edits remain session-local until versioned persistence exists. `src/App.tsx`
+still holds all UI state. A loopback Express server hosts Vite,
+`/api/workspace`, and `/api/assistant`; Pi chat uses 9router with one strict
+reply tool and isolated in-memory context threads. There is still no SQLite or
+domain tool for checks, clustering, or graph edits.
 
 `README.md` is AI Studio boilerplate and is stale. Root `CLAUDE.md` is a
 compatibility pointer to this file. **This file (`AGENTS.md`) is the authority.**
@@ -260,10 +283,13 @@ schema design.
 2. **`check_note`** is one row holding the whole check result: the short finding
    plus the three Type/Scope/Target verdicts. Versioned per run, stamped with
    the model id.
-3. **Tags** are free-form strings. No tag entity, no rename cascade.
-4. **The artifact overlay's required "What did this show?"** is required at
+3. **The 15-note stop** counts *unclustered* loose notes. A note that belongs to
+   a candidate no longer counts, otherwise the stop can never be cleared.
+4. **Survey note sources** are free text, not a foreign key to a paper.
+5. **Tags** are free-form strings. No tag entity, no rename cascade.
+6. **The artifact overlay's required "What did this show?"** is required at
    status `done`. A `planned` experiment has no result to describe yet.
-5. **"Reject"** on a claim is a soft flag that preserves history, never a delete.
+7. **"Reject"** on a claim is a soft flag that preserves history, never a delete.
    Rule 4 makes deletion of a rejected claim wrong.
 
 ### Known schema drift

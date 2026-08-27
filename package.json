@@ -8,6 +8,9 @@
     "build": "vite build && esbuild server/index.ts --bundle --platform=node --format=esm --packages=external --outfile=server.js",
     "preview": "NODE_ENV=production node server.js",
     "clean": "rm -rf dist server.js",
+    "check:graph-edits": "tsx src/graphEdits.check.ts",
+    "check:research-drag": "tsx src/researchItemDrag.check.ts",
+    "check:workspace": "tsx server/workspace.check.ts",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

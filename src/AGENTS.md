@@ -10,8 +10,8 @@ the assistant may not do. This file only covers how the code here is laid out.
 
 - `types.ts` — every shared type. **Known to drift from the real schema; root
   `CLAUDE.md` §6 lists exactly how.** Do not treat it as the data model.
-- `App.tsx` — holds *all* app state: active tab, global selection,
-  the graph tree, assistant threads. Every pane is a controlled
+- `App.tsx` (1700 lines) — holds *all* app state: active tab, global selection,
+  the graph tree, assistant threads, survey notes. Every pane is a controlled
   child. There is no store, no context, no router.
 
 ## Layout
@@ -24,7 +24,7 @@ data/                hardcoded fixtures (see below)
 components/          one pane per tab + shared cards
 ```
 
-Panes map 1:1 to tabs: `GraphPane` `PapersPane` `ExperimentsPane`,
+Panes map 1:1 to tabs: `GraphPane` `SurveyPane` `PapersPane` `ExperimentsPane`,
 plus `CheckPane` (the Detail middle column) and `AssistantDock` (global right
 dock, every tab, `Cmd/Ctrl+J`).
 

@@ -1,5 +1,6 @@
 import { EvidenceItem } from '../types';
 import { FileText, FlaskConical } from 'lucide-react';
+import { setResearchItemDragData } from '../researchItemDrag';
 
 interface EvidenceNodeCardProps {
   key?: string;
@@ -86,7 +87,16 @@ export function EvidenceNodeCard({ evidence, isHighlighted }: EvidenceNodeCardPr
   return (
     <div
       id={`evidence-node-${evidence.id}`}
-      className={`rounded-[10px] p-3 transition-all duration-300 ${containerClasses}`}
+      draggable={isPaper}
+      onDragStart={(event) => {
+        if (!isPaper) return;
+        setResearchItemDragData(event.dataTransfer, {
+          id: evidence.id,
+          type: 'PAPER',
+          label: evidence.title,
+        });
+      }}
+      className={`rounded-[10px] p-3 transition-all duration-300 ${isPaper ? 'cursor-grab active:cursor-grabbing' : ''} ${containerClasses}`}
     >
       <div className="flex items-center justify-between gap-2 mb-1.5">
         <div className="flex items-center gap-1.5">
@@ -113,6 +123,10 @@ export function EvidenceNodeCard({ evidence, isHighlighted }: EvidenceNodeCardPr
           <span>{evidence.citation}</span>
         </div>
       )}
+
+      <div className={`mt-2 text-[11px] leading-snug ${evidence.userReason ? 'text-[#6b6b6b] dark:text-[#999]' : 'text-rose-600 dark:text-rose-400'}`}>
+        {evidence.userReason ? `Reason: ${evidence.userReason}` : 'Reason missing — this link cannot be checked.'}
+      </div>
     </div>
   );
 }

@@ -7,6 +7,7 @@ export const AssistantRequestSchema = Type.Object(
       {
         kind: Type.Union([
           Type.Literal('whole_graph'),
+          Type.Literal('survey'),
           Type.Literal('claim'),
           Type.Literal('paper'),
           Type.Literal('experiment'),

@@ -1,51 +1,43 @@
-import { ClaimNode, QuestionNode } from '../types';
+import { ClaimNode, EvidenceKind, QuestionNode } from '../types';
 import { ShieldAlert, ShieldCheck, CornerDownRight, Plus, X, RotateCcw, ArrowRight } from 'lucide-react';
 
 interface CheckPaneProps {
   claim: ClaimNode | undefined;
   selectedQuestion?: QuestionNode | undefined;
-  onWeakenClaim: (claimId: string) => void;
-  onAddExperiment: (claimId: string) => void;
   onRejectClaim: (claimId: string) => void;
-  onAddClaimToQuestion?: (questionId: string) => void;
+  onEditClaim: (claimId: string, evidenceKind?: EvidenceKind) => void;
   onReset: () => void;
 }
 
 export function CheckPane({
   claim,
   selectedQuestion,
-  onWeakenClaim,
-  onAddExperiment,
   onRejectClaim,
-  onAddClaimToQuestion,
+  onEditClaim,
   onReset,
 }: CheckPaneProps) {
+  const openClaimEditor = (fieldId: string, evidenceKind?: EvidenceKind) => {
+    onEditClaim(claim?.id || '', evidenceKind);
+    window.requestAnimationFrame(() => document.getElementById(fieldId)?.focus());
+  };
+
   if (!claim) {
     if (selectedQuestion) {
       return (
         <div
           id="check-pane-empty-question"
-          className="h-full flex flex-col items-center justify-center p-8 text-center space-y-4 bg-[#f9f9f9] dark:bg-[#181818]"
+          className="h-full overflow-y-auto p-6 md:p-8 bg-[#f9f9f9] dark:bg-[#181818]"
         >
-          <div className="space-y-1 max-w-sm">
-            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-stone-400 dark:text-stone-500">
-              QUESTION SELECTED
-            </span>
-            <h2 className="text-sm font-medium text-stone-700 dark:text-stone-200 leading-snug">
-              No claims yet under this question
-            </h2>
-            <p className="text-xs text-stone-500 dark:text-stone-400 italic">
-              "{selectedQuestion.text}"
-            </p>
+          <div className="h-full flex items-center justify-center text-center">
+            <div className="max-w-sm space-y-2">
+              <div className="text-[10px] font-mono font-bold uppercase tracking-wider text-stone-400 dark:text-stone-500">
+                No claims yet
+              </div>
+              <p className="text-sm text-stone-600 dark:text-stone-300">
+                Use the edit icon on the question card to add one.
+              </p>
+            </div>
           </div>
-          <button
-            id="btn-add-claim-to-question"
-            onClick={() => onAddClaimToQuestion?.(selectedQuestion.id)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-medium bg-stone-900 dark:bg-white text-white dark:text-stone-900 hover:bg-stone-800 dark:hover:bg-stone-100 shadow-xs transition-colors cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Add claim</span>
-          </button>
         </div>
       );
     }
@@ -66,8 +58,9 @@ export function CheckPane({
       case 'red':
         return 'bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border-rose-300 dark:border-rose-800 ring-1 ring-rose-500/20';
       case 'amber':
-      default:
         return 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800 ring-1 ring-amber-500/20';
+      default:
+        return 'bg-stone-100 dark:bg-stone-900 text-stone-700 dark:text-stone-300 border-stone-300 dark:border-stone-700';
     }
   };
 
@@ -156,7 +149,7 @@ export function CheckPane({
           <div className="pt-2 flex flex-wrap items-center gap-2">
             <button
               id="btn-weaken-claim"
-              onClick={() => onWeakenClaim(claim.id)}
+              onClick={() => openClaimEditor('manual-node-text')}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium bg-stone-100 dark:bg-[#252525] hover:bg-stone-200 dark:hover:bg-[#303030] text-stone-800 dark:text-stone-200 border border-stone-200 dark:border-[#333333] transition-colors active:scale-98 cursor-pointer"
             >
               <CornerDownRight className="w-3.5 h-3.5 text-stone-600 dark:text-stone-400" />
@@ -165,7 +158,7 @@ export function CheckPane({
 
             <button
               id="btn-add-experiment"
-              onClick={() => onAddExperiment(claim.id)}
+              onClick={() => openClaimEditor('manual-evidence-kind', 'experiment')}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium bg-stone-900 dark:bg-white hover:bg-stone-800 dark:hover:bg-stone-100 text-white dark:text-stone-900 shadow-xs transition-colors active:scale-98 cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />

@@ -14,4 +14,5 @@ Instrument's loopback-only Node backend. See `INDEX.md` for the file map.
 ## Commands
 
 - `npm run dev` — Express with Vite middleware on port 3000.
+- `npm run check:workspace` — workspace loader validation check.
 - `npm run lint` — TypeScript check.

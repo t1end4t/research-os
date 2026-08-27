@@ -6,12 +6,22 @@ import { Value } from 'typebox/value';
 import type { AssistantRequest } from '../src/assistantApi';
 import { runAssistant } from './assistant/runtime';
 import { AssistantRequestSchema } from './assistant/schemas';
+import { loadWorkspace } from './workspace';
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 app.use(express.json({ limit: '300kb' }));
+
+app.get('/api/workspace', async (_request, response) => {
+  try {
+    response.json(await loadWorkspace());
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Workspace load failed.';
+    response.status(500).json({ error: message });
+  }
+});
 
 app.post('/api/assistant', async (request, response) => {
   if (!Value.Check(AssistantRequestSchema, request.body)) {
