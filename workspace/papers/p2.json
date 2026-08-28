@@ -1,0 +1,16 @@
+{
+  "title": "Overlap correlates with recall error",
+  "authors": "Ahmad, S. & Scheinkman, L.",
+  "year": 2019,
+  "citation": "Journal of Cognitive Systems 14, 112–129 (2019)",
+  "page_count": 32,
+  "sections": [
+    {
+      "id": "sec-p2-1",
+      "paragraphs": [
+        { "id": "p2-par-1" },
+        { "id": "p2-par-2", "linked_claim_id": "c1" }
+      ]
+    }
+  ]
+}

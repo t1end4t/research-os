@@ -1,0 +1,31 @@
+{
+  "title": "Sparse codes emerge from image statistics",
+  "authors": "Olshausen, B. A. & Field, D. J.",
+  "year": 1996,
+  "citation": "Nature 381, 607–609 (1996)",
+  "page_count": 44,
+  "sections": [
+    {
+      "id": "sec-intro",
+      "paragraphs": [
+        { "id": "p1-par-1" },
+        { "id": "p1-par-2", "linked_claim_id": "c1" }
+      ]
+    },
+    {
+      "id": "sec-model",
+      "paragraphs": [
+        { "id": "p1-par-3" },
+        { "id": "p1-par-4", "linked_claim_id": "c1" },
+        { "id": "p1-par-5" }
+      ]
+    },
+    {
+      "id": "sec-discussion",
+      "paragraphs": [
+        { "id": "p1-par-6", "linked_claim_id": "c1" },
+        { "id": "p1-par-7" }
+      ]
+    }
+  ]
+}

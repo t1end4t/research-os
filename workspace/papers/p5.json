@@ -1,0 +1,15 @@
+{
+  "title": "Scaling and evaluating sparse autoencoders",
+  "authors": "Gao, L., Goh, G., Templeton, A., et al.",
+  "year": 2024,
+  "citation": "OpenAI & Anthropic Joint Preprint (2024)",
+  "page_count": 48,
+  "sections": [
+    {
+      "id": "sec-p5-1",
+      "paragraphs": [
+        { "id": "p5-par-1", "linked_claim_id": "c3" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "kind": "claim-evidence",
+  "parent_id": "c1",
+  "child_id": "e1",
+  "status": "holds",
+  "user_reason": "Sparse coding produces localized orthogonal receptive fields from natural scene statistics."
+}

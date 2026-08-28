@@ -1,0 +1,29 @@
+{
+  "kind": "question-claim",
+  "parent_id": "q2",
+  "child_id": "c3",
+  "status": "holds",
+  "user_reason": "Overcomplete sparse autoencoders disentangle polysemantic activations into monosemantic feature directions.",
+  "check": {
+    "tag": "EMPIRICAL SUPPORT CONFIRMED",
+    "tag_color": "emerald",
+    "note": "All three foundational papers demonstrate that scaling the dictionary capacity directly mitigates superposition interference in transformer language models.",
+    "items": [
+      {
+        "label": "Type",
+        "status": "aligned",
+        "detail": "Mechanistic and empirical proofs with dictionary interventions"
+      },
+      {
+        "label": "Scope",
+        "status": "aligned",
+        "detail": "Transformer residual streams and MLP layers"
+      },
+      {
+        "label": "Target",
+        "status": "aligned",
+        "detail": "Direct control over linear feature superposition"
+      }
+    ]
+  }
+}

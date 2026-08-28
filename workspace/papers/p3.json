@@ -1,0 +1,16 @@
+{
+  "title": "Toy models of superposition",
+  "authors": "Elhage, N., Hume, T., Olsson, C., et al.",
+  "year": 2022,
+  "citation": "Anthropic Transformer Circuit Thread (2022)",
+  "page_count": 68,
+  "sections": [
+    {
+      "id": "sec-p3-1",
+      "paragraphs": [
+        { "id": "p3-par-1", "linked_claim_id": "c3" },
+        { "id": "p3-par-2", "linked_claim_id": "c3" }
+      ]
+    }
+  ]
+}

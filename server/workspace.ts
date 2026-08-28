@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type {
@@ -26,9 +27,20 @@ interface JsonDocument {
   data: Record<string, unknown>;
 }
 
-const workspacePath = path.resolve(
-  process.env.INSTRUMENT_WORKSPACE_DIR || '/home/tiendat/second-brain',
-);
+function getWorkspacePath(): string {
+  const customPath = process.env.INSTRUMENT_WORKSPACE_DIR;
+  if (customPath) {
+    const resolved = path.resolve(customPath);
+    if (existsSync(resolved) && existsSync(path.join(resolved, 'questions'))) {
+      return resolved;
+    }
+  }
+  const defaultPath = path.resolve(process.cwd(), 'workspace');
+  if (existsSync(defaultPath)) {
+    return defaultPath;
+  }
+  return path.resolve('workspace');
+}
 
 function requiredString(data: Record<string, unknown>, key: string, filePath: string): string {
   const value = data[key];
@@ -90,7 +102,7 @@ async function readJson(filePath: string): Promise<Record<string, unknown>> {
 }
 
 async function readSidecarDirectory(relativePath: string): Promise<SidecarDocument[]> {
-  const directoryPath = path.join(workspacePath, relativePath);
+  const directoryPath = path.join(getWorkspacePath(), relativePath);
   let entries;
   try {
     entries = await readdir(directoryPath, { withFileTypes: true });
@@ -123,7 +135,7 @@ async function readSidecarDirectory(relativePath: string): Promise<SidecarDocume
 }
 
 async function readJsonDirectory(relativePath: string): Promise<JsonDocument[]> {
-  const directoryPath = path.join(workspacePath, relativePath);
+  const directoryPath = path.join(getWorkspacePath(), relativePath);
   let entries;
   try {
     entries = await readdir(directoryPath, { withFileTypes: true });
@@ -350,7 +362,7 @@ export async function loadWorkspace(): Promise<WorkspaceResponse> {
   }));
 
   return {
-    workspacePath,
+    workspacePath: getWorkspacePath(),
     questions: [...questions.values()],
     papers,
     evidenceToPaperMap,

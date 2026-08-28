@@ -1,0 +1,16 @@
+{
+  "title": "Towards Monosemanticity: Decomposing Language Models",
+  "authors": "Bricken, T., Templeton, A., Batson, J., et al.",
+  "year": 2023,
+  "citation": "Anthropic Research Publication (2023)",
+  "page_count": 52,
+  "sections": [
+    {
+      "id": "sec-p4-1",
+      "paragraphs": [
+        { "id": "p4-par-1", "linked_claim_id": "c3" },
+        { "id": "p4-par-2", "linked_claim_id": "c3" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "kind": "question-claim",
+  "parent_id": "q1",
+  "child_id": "c1",
+  "status": "weak",
+  "user_reason": "Sparsity geometrically forces representations into orthogonal subspaces, which prevents weight corruption during sequential learning.",
+  "check": {
+    "tag": "TYPE MISMATCH",
+    "tag_color": "amber",
+    "note": "Your claim is causal. Both findings are correlational - neither manipulates overlap while holding sparsity fixed.",
+    "items": [
+      {
+        "label": "Type",
+        "status": "mismatch",
+        "detail": "Causal claim backed only by observational correlations"
+      },
+      {
+        "label": "Scope",
+        "status": "partial",
+        "detail": "Vision encoding to associative recall tasks"
+      },
+      {
+        "label": "Target",
+        "status": "aligned",
+        "detail": "Interference reduction via orthogonal activation"
+      }
+    ]
+  }
+}

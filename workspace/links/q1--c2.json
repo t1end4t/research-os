@@ -1,0 +1,29 @@
+{
+  "kind": "question-claim",
+  "parent_id": "q1",
+  "child_id": "c2",
+  "status": "missing",
+  "user_reason": "Dentate gyrus granule cells maintain low firing probability (~2-5%) to prevent memory interference.",
+  "check": {
+    "tag": "NO EVIDENCE LINKED",
+    "tag_color": "red",
+    "note": "This claim is an untested teleological assertion. No empirical papers or experimental manipulations are currently attached to this node.",
+    "items": [
+      {
+        "label": "Type",
+        "status": "missing",
+        "detail": "Hypothesis without supporting citations or tests"
+      },
+      {
+        "label": "Scope",
+        "status": "unverified",
+        "detail": "Dentate gyrus pattern separation circuits"
+      },
+      {
+        "label": "Target",
+        "status": "unverified",
+        "detail": "Episodic memory interference prevention"
+      }
+    ]
+  }
+}

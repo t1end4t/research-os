@@ -1,0 +1,7 @@
+{
+  "kind": "claim-evidence",
+  "parent_id": "c1",
+  "child_id": "e2",
+  "status": "holds",
+  "user_reason": "Empirical correlation confirms overlap increases recall error in high-dimensional representations."
+}
