@@ -87,16 +87,15 @@ export function EvidenceNodeCard({ evidence, isHighlighted }: EvidenceNodeCardPr
   return (
     <div
       id={`evidence-node-${evidence.id}`}
-      draggable={isPaper}
+      draggable={isPaper || isExperiment}
       onDragStart={(event) => {
-        if (!isPaper) return;
         setResearchItemDragData(event.dataTransfer, {
           id: evidence.id,
-          type: 'PAPER',
+          type: isPaper ? 'PAPER' : 'EXPERIMENT',
           label: evidence.title,
         });
       }}
-      className={`rounded-[10px] p-3 transition-all duration-300 ${isPaper ? 'cursor-grab active:cursor-grabbing' : ''} ${containerClasses}`}
+      className={`rounded-[10px] p-3 transition-all duration-300 ${isPaper || isExperiment ? 'cursor-grab active:cursor-grabbing' : ''} ${containerClasses}`}
     >
       <div className="flex items-center justify-between gap-2 mb-1.5">
         <div className="flex items-center gap-1.5">

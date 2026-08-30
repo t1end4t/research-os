@@ -655,6 +655,57 @@ export default function App() {
       return;
     }
 
+    if (item.type === 'SURVEY') {
+      const problem = openProblems.find((candidate) => candidate.id === item.id);
+      if (problem) {
+        setSelectedNodeId(problem.id);
+        triggerHighlight(problem.id);
+        return;
+      }
+
+      const candidate = candidateQuestions.find((candidate) => candidate.id === item.id);
+      if (candidate) {
+        setSelectedNodeId(candidate.id);
+        triggerHighlight(candidate.id);
+        return;
+      }
+
+      setSelectedNodeId(null);
+      setActiveTab('survey');
+      return;
+    }
+
+    if (item.type === 'EXPERIMENT') {
+      const linkedExp = questionsData
+        .flatMap((question) =>
+          question.claims.flatMap((claim) =>
+            claim.evidence
+              .filter((evidence) => evidence.kind === 'experiment')
+              .map((evidence) => ({
+                questionId: question.id,
+                claimId: claim.id,
+                evidenceId: evidence.id,
+              }))
+          )
+        )
+        .find((exp) => exp.evidenceId === item.id);
+
+      if (linkedExp) {
+        handleSelectNodeFromGraph({
+          id: linkedExp.evidenceId,
+          type: 'EXPERIMENT',
+          questionId: linkedExp.questionId,
+          claimId: linkedExp.claimId,
+          evidenceId: linkedExp.evidenceId,
+        });
+        return;
+      }
+
+      setSelectedNodeId(item.id);
+      triggerHighlight(item.id);
+      return;
+    }
+
     const linkedPaper = questionsData
       .flatMap((question) =>
         question.claims.flatMap((claim) =>
@@ -1078,6 +1129,23 @@ export default function App() {
       ...prev,
       [paperId]: [...(prev[paperId] || []), mark],
     }));
+  };
+
+  const handleAddCustomPaper = (paper: PaperDoc) => {
+    setPapersCatalog((prev) => {
+      const existingIdx = prev.findIndex((p) => p.id === paper.id);
+      if (existingIdx >= 0) {
+        const copy = [...prev];
+        copy[existingIdx] = paper;
+        return copy;
+      }
+      return [paper, ...prev];
+    });
+    if (!openPaperIds.includes(paper.id)) {
+      setOpenPaperIds((prev) => [...prev, paper.id]);
+    }
+    setActivePaperId(paper.id);
+    setSelectedNodeId(paper.id);
   };
 
   // "Ask" button in Paper Reader Floating Toolbar -> Opens Assistant Dock with quote
@@ -1573,6 +1641,7 @@ export default function App() {
               onAddOpenProblem={handleAddOpenProblem}
               targetPassageParagraphId={targetPassageParagraphId}
               onAskAboutSelection={handleAskAboutSelection}
+              onAddCustomPaper={handleAddCustomPaper}
             />
           )}
 

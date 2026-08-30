@@ -121,6 +121,13 @@ export interface LeftRailMark {
   label: string;
   snippet: string;
   claimId?: string;
+  pageNumber?: number;
+}
+
+export interface PdfOutlineItem {
+  title: string;
+  pageNumber: number;
+  children?: PdfOutlineItem[];
 }
 
 export interface PaperDoc {
@@ -141,6 +148,10 @@ export interface PaperDoc {
     }[];
   }[];
   initialMarks: LeftRailMark[];
+  pdfUrl?: string;
+  pdfData?: Uint8Array | ArrayBuffer;
+  sourceType?: 'workspace' | 'uploaded' | 'arxiv' | 'url';
+  outline?: PdfOutlineItem[];
 }
 
 export type ArtifactType = 'PLOT' | 'TABLE' | 'NOTE';

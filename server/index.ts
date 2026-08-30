@@ -13,7 +13,51 @@ async function startServer() {
   const port = Number(process.env.PORT || 3000);
   const rootDir = process.cwd();
 
-  app.use(express.json({ limit: '300kb' }));
+  app.use(express.json({ limit: '10mb' }));
+
+  app.get('/api/pdf/proxy', async (request, response) => {
+    const rawUrl = request.query.url;
+    if (typeof rawUrl !== 'string' || !rawUrl.trim()) {
+      response.status(400).json({ error: 'Missing url query parameter.' });
+      return;
+    }
+
+    try {
+      let targetUrl = rawUrl.trim();
+      // Handle arXiv identifiers or abs URLs
+      if (/^\d{4}\.\d{4,5}(v\d+)?$/.test(targetUrl)) {
+        targetUrl = `https://arxiv.org/pdf/${targetUrl}.pdf`;
+      } else if (targetUrl.includes('arxiv.org/abs/')) {
+        targetUrl = targetUrl.replace('arxiv.org/abs/', 'arxiv.org/pdf/') + '.pdf';
+      }
+
+      const parsed = new URL(targetUrl);
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        response.status(400).json({ error: 'Invalid protocol. Only HTTP/HTTPS supported.' });
+        return;
+      }
+
+      const fetchRes = await fetch(targetUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          Accept: 'application/pdf,*/*',
+        },
+      });
+
+      if (!fetchRes.ok) {
+        response.status(fetchRes.status).json({ error: `Failed to fetch PDF: ${fetchRes.statusText}` });
+        return;
+      }
+
+      const buffer = await fetchRes.arrayBuffer();
+      response.setHeader('Content-Type', 'application/pdf');
+      response.setHeader('Content-Disposition', 'inline');
+      response.send(Buffer.from(buffer));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to proxy PDF.';
+      response.status(500).json({ error: message });
+    }
+  });
 
   app.get('/api/workspace', async (_request, response) => {
     try {

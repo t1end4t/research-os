@@ -1,4 +1,9 @@
-export type DraggableResearchItemType = 'QUESTION' | 'CLAIM' | 'PAPER';
+export type DraggableResearchItemType =
+  | 'QUESTION'
+  | 'CLAIM'
+  | 'PAPER'
+  | 'EXPERIMENT'
+  | 'SURVEY';
 
 export interface DraggableResearchItem {
   id: string;
@@ -12,6 +17,8 @@ const DRAGGABLE_RESEARCH_ITEM_TYPES = new Set<DraggableResearchItemType>([
   'QUESTION',
   'CLAIM',
   'PAPER',
+  'EXPERIMENT',
+  'SURVEY',
 ]);
 
 export function setResearchItemDragData(

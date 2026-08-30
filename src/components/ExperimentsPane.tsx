@@ -7,6 +7,7 @@ import {
   ArtifactType,
 } from '../types';
 import { INITIAL_EXPERIMENTS_DATA } from '../data/experimentsData';
+import { setResearchItemDragData } from '../researchItemDrag';
 import { LinkStatusChip } from './LinkStatusChip';
 import {
   Plus,
@@ -18,6 +19,7 @@ import {
   StickyNote,
   ChevronDown,
   Check,
+  GripVertical,
 } from 'lucide-react';
 
 interface ExperimentsPaneProps {
@@ -503,13 +505,27 @@ export function ExperimentsPane({
             >
               {/* Group Heading: takes the experiment tint */}
               <div
-                className={`flex items-center justify-between rounded-[10px] p-3 px-4 transition-all duration-200 border bg-[#FFF6EE] dark:bg-[#A45A1E]/12 ${
+                draggable
+                onDragStart={(e) => {
+                  setResearchItemDragData(e.dataTransfer, {
+                    id: group.id,
+                    type: 'EXPERIMENT',
+                    label: `Experiment: ${group.name} (tests ${group.claimText})`,
+                  });
+                }}
+                className={`group/exp-hdr flex items-center justify-between rounded-[10px] p-3 px-4 transition-all duration-200 border bg-[#FFF6EE] dark:bg-[#A45A1E]/12 cursor-grab active:cursor-grabbing ${
                   flashingGroupId === group.id
                     ? 'ring-2 ring-[#ffb000] border-[#ffb000]'
-                    : 'border-[#F6E3D2] dark:border-[#A45A1E]/25'
+                    : 'border-[#F6E3D2] dark:border-[#A45A1E]/25 hover:border-[#A45A1E]/50'
                 }`}
               >
                 <div className="flex items-center gap-2 min-w-0 pr-4">
+                  <div
+                    title="Drag experiment to Assistant panel"
+                    className="opacity-40 group-hover/exp-hdr:opacity-100 cursor-grab active:cursor-grabbing text-[#A45A1E] dark:text-[#F4A86A] shrink-0"
+                  >
+                    <GripVertical className="w-3.5 h-3.5" />
+                  </div>
                   <span className="w-1.5 h-1.5 rounded-full bg-[#A45A1E] dark:bg-[#F4A86A] shrink-0" />
                   <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-[#A45A1E] dark:text-[#F4A86A] shrink-0">
                     EXPERIMENT • TESTS:
@@ -519,7 +535,7 @@ export function ExperimentsPane({
                   </span>
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
                   <span className="text-[11px] font-mono uppercase px-2 py-0.5 rounded-full bg-white dark:bg-[#252525] text-[#666] dark:text-[#999] border border-[#F6E3D2] dark:border-[#333333]">
                     {group.status}
                   </span>
@@ -534,12 +550,26 @@ export function ExperimentsPane({
                   <div
                     key={art.id}
                     id={`artifact-card-${art.id}`}
+                    draggable
+                    onDragStart={(e) => {
+                      setResearchItemDragData(e.dataTransfer, {
+                        id: art.id,
+                        type: 'EXPERIMENT',
+                        label: `${art.type}: ${art.title || art.caption}`,
+                      });
+                    }}
                     onClick={() => setSelectedArtifact(art)}
-                    className="group relative bg-white dark:bg-[#1a1a1a] border border-[#ececec] dark:border-[#282828] hover:border-[#999] dark:hover:border-[#555] rounded-[10px] p-4 flex flex-col justify-between transition-all duration-150 cursor-pointer min-h-[260px]"
+                    className="group relative bg-white dark:bg-[#1a1a1a] border border-[#ececec] dark:border-[#282828] hover:border-[#999] dark:hover:border-[#555] rounded-[10px] p-4 flex flex-col justify-between transition-all duration-150 cursor-grab active:cursor-grabbing min-h-[260px]"
                   >
                     {/* Top: 10px uppercase muted type label + hover actions */}
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-1.5 text-[#888] dark:text-[#777]">
+                        <div
+                          title="Drag artifact to Assistant panel"
+                          className="opacity-40 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-stone-400"
+                        >
+                          <GripVertical className="w-3.5 h-3.5" />
+                        </div>
                         {art.type === 'PLOT' && <LineChart className="w-3.5 h-3.5" />}
                         {art.type === 'TABLE' && (
                           <FileSpreadsheet className="w-3.5 h-3.5" />
@@ -653,11 +683,23 @@ export function ExperimentsPane({
             {/* Right Column: Narrow column with metadata & "What did this show?" */}
             <div className="w-full md:w-80 p-6 bg-white dark:bg-[#1a1a1a] flex flex-col justify-between overflow-y-auto space-y-6">
               <div className="space-y-4">
-                {/* Modal Close Button */}
+                {/* Modal Close Button & Drag Handle */}
                 <div className="flex items-center justify-between pb-2 border-b border-[#ececec] dark:border-[#262626]">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-[#888] dark:text-[#777]">
-                    Artifact Details
-                  </span>
+                  <div
+                    draggable
+                    onDragStart={(e) => {
+                      setResearchItemDragData(e.dataTransfer, {
+                        id: selectedArtifact.id,
+                        type: 'EXPERIMENT',
+                        label: `${selectedArtifact.type}: ${selectedArtifact.title || selectedArtifact.caption}`,
+                      });
+                    }}
+                    title="Drag artifact to Assistant panel"
+                    className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono uppercase bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-700 cursor-grab active:cursor-grabbing hover:bg-stone-200 dark:hover:bg-stone-700"
+                  >
+                    <GripVertical className="w-3 h-3 text-stone-400" />
+                    <span>Drag to Dock</span>
+                  </div>
                   <button
                     onClick={() => setSelectedArtifact(null)}
                     className="p-1 hover:text-[#1a1a1a] dark:hover:text-white text-[#888] dark:text-[#777] rounded cursor-pointer"
