@@ -1,22 +1,22 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Plus,
-  X,
-  ChevronDown,
-  Pencil,
-  Trash2,
-  GripVertical,
-  CornerDownRight,
-  Layers,
-  Check,
   ArrowRight,
-  Tag,
-  AlertCircle,
-  HelpCircle,
+  BookOpen,
+  Check,
+  ChevronDown,
+  CircleDot,
+  Edit3,
+  FolderInput,
+  Layers3,
+  MoveUpRight,
+  Plus,
+  Sparkles,
+  Trash2,
+  X,
 } from 'lucide-react';
-import { CandidateQuestion, OpenProblemNote, ClusteringProposal } from '../types';
+import { CandidateQuestion, ClusteringProposal, OpenProblemNote } from '../types';
 import { setResearchItemDragData } from '../researchItemDrag';
-import { Tooltip, ExplainerButton, SurfaceNote, Term, GUIDANCE_COPY } from '../guidance';
+import { Tooltip } from '../guidance';
 
 interface SurveyPaneProps {
   openProblems: OpenProblemNote[];
@@ -41,6 +41,935 @@ interface SurveyPaneProps {
   onNavigateToMap?: (questionId?: string) => void;
 }
 
+type SurveySelection =
+  | { type: 'note'; id: string }
+  | { type: 'candidate'; id: string }
+  | null;
+
+const SURVEY_DRAG_TYPE = 'application/x-instrument-survey-note';
+const SURVEY_MODEL_ID = 'cx/gpt-5.6-sol';
+
+function clampTextStyle(lines = 2): React.CSSProperties {
+  return {
+    display: '-webkit-box',
+    WebkitBoxOrient: 'vertical',
+    WebkitLineClamp: lines,
+    overflow: 'hidden',
+  };
+}
+
+function FifteenSegmentRing({ count, sealed }: { count: number; sealed: boolean }) {
+  return (
+    <div
+      className={`relative h-7 w-7 shrink-0 rounded-full transition-all ${
+        sealed ? 'shadow-[0_0_18px_rgba(136,124,255,0.22)]' : ''
+      }`}
+      role="img"
+      aria-label={`${Math.min(count, 15)} of 15 loose observation slots filled`}
+    >
+      {Array.from({ length: 15 }, (_, index) => (
+        <span
+          key={index}
+          className={`absolute left-1/2 top-1/2 h-[5px] w-[1.5px] origin-[50%_12px] rounded-full transition-colors ${
+            index < Math.min(count, 15)
+              ? sealed
+                ? 'bg-[#A69BFF]'
+                : 'bg-[#76808D]'
+              : 'bg-[#303844]'
+          }`}
+          style={{ transform: `translate(-50%, -12px) rotate(${index * 24}deg)` }}
+        />
+      ))}
+      <span
+        className={`absolute inset-[7px] rounded-full border ${
+          sealed ? 'border-[#8277D7]/70 bg-[#665CC0]/20' : 'border-[#303844] bg-[#11151B]'
+        }`}
+      />
+    </div>
+  );
+}
+
+interface ObservationCardProps {
+  key?: React.Key;
+  note: OpenProblemNote;
+  grouped?: boolean;
+  selected?: boolean;
+  highlighted?: boolean;
+  compact?: boolean;
+  onSelect?: () => void;
+  onEdit?: () => void;
+  onDelete?: () => void;
+  onUngroup?: () => void;
+  onDragStart?: (event: React.DragEvent<HTMLDivElement>) => void;
+}
+
+function ObservationCard({
+  note,
+  grouped = false,
+  selected = false,
+  highlighted = false,
+  compact = false,
+  onSelect,
+  onEdit,
+  onDelete,
+  onUngroup,
+  onDragStart,
+}: ObservationCardProps) {
+  if (compact) {
+    return (
+      <div
+        data-selected={selected}
+        draggable
+        onDragStart={onDragStart}
+        onClick={(event) => {
+          event.stopPropagation();
+          onSelect?.();
+        }}
+        className={`survey-grouped-card group relative min-h-[54px] cursor-grab rounded-lg border px-2.5 py-2 text-left shadow-[0_5px_14px_rgba(0,0,0,0.16)] active:cursor-grabbing ${
+          selected
+            ? 'border-[#9388F2] bg-[#7770BD]/20 shadow-[0_0_0_2px_rgba(147,136,242,0.14)]'
+            : 'border-[#494766]/85 bg-[#151525]/90 hover:border-[#716C94] hover:bg-[#1A192C]'
+        }`}
+      >
+        <div className="flex items-start gap-2">
+          <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#8D84DC]" />
+          <p className="text-[11px] leading-[1.45] text-[#CBD1DB]" style={clampTextStyle(2)}>
+            {note.text}
+          </p>
+        </div>
+        {onUngroup && (
+          <Tooltip content="Return to loose observations">
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onUngroup();
+              }}
+              className="absolute right-1.5 top-1.5 rounded-md p-1 text-[#7E8792] opacity-0 transition-all hover:bg-[#252B36] hover:text-[#EEF1F4] group-hover:opacity-100 focus-visible:opacity-100"
+              aria-label="Return observation to loose field"
+            >
+              <MoveUpRight className="h-3 w-3" />
+            </button>
+          </Tooltip>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      data-selected={selected}
+      draggable
+      onDragStart={onDragStart}
+      onClick={(event) => {
+        event.stopPropagation();
+        onSelect?.();
+      }}
+      className={`survey-observation-card group relative h-[94px] w-[176px] cursor-grab rounded-[10px] border bg-[#141A22] px-3.5 py-3 text-left shadow-[0_10px_24px_rgba(0,0,0,0.28)] transition-[border-color,background-color,box-shadow,transform] duration-200 active:cursor-grabbing ${
+        selected
+          ? 'z-20 border-[#9187E7] bg-[#171C27] shadow-[0_0_0_3px_rgba(145,135,231,0.14),0_18px_38px_rgba(0,0,0,0.32)]'
+          : 'border-[#303A46] hover:z-10 hover:-translate-y-0.5 hover:border-[#53606D] hover:bg-[#19212A]'
+      } ${
+        highlighted
+          ? 'animate-pulse border-[#A99FFF] shadow-[0_0_0_4px_rgba(169,159,255,0.12),0_20px_44px_rgba(0,0,0,0.3)]'
+          : ''
+      }`}
+    >
+      <div className="mb-2 flex items-center justify-between">
+        <span
+          className={`h-2 w-2 rounded-full ${
+            grouped ? 'bg-[#8C82DC]' : 'border border-[#687381] bg-transparent'
+          }`}
+          aria-label={grouped ? 'Grouped observation' : 'Loose observation'}
+        />
+        <div className="flex items-center gap-0.5">
+          {note.citation && (
+            <Tooltip content={note.citation} placement="bottom">
+              <span className="inline-flex rounded p-1 text-[#697482] transition-colors group-hover:text-[#A7B0BB]">
+                <BookOpen className="h-3 w-3" />
+              </span>
+            </Tooltip>
+          )}
+          <div className="flex opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+            <Tooltip content="Inspect and move">
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onSelect?.();
+                }}
+                className="rounded p-1 text-[#78828E] hover:bg-[#252C36] hover:text-[#EEF1F4]"
+                aria-label="Inspect observation"
+              >
+                <FolderInput className="h-3 w-3" />
+              </button>
+            </Tooltip>
+            <Tooltip content="Edit observation">
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onEdit?.();
+                }}
+                className="rounded p-1 text-[#78828E] hover:bg-[#252C36] hover:text-[#EEF1F4]"
+                aria-label="Edit observation"
+              >
+                <Edit3 className="h-3 w-3" />
+              </button>
+            </Tooltip>
+            <Tooltip content="Delete observation">
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onDelete?.();
+                }}
+                className="rounded p-1 text-[#78828E] hover:bg-[#3A2227] hover:text-[#E59B9B]"
+                aria-label="Delete observation"
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </Tooltip>
+          </div>
+        </div>
+      </div>
+      <p className="text-[13px] leading-[1.48] text-[#DDE2E8]" style={clampTextStyle(2)}>
+        {note.text}
+      </p>
+    </div>
+  );
+}
+
+interface CandidateIslandProps {
+  candidate: CandidateQuestion;
+  notes: OpenProblemNote[];
+  selected: boolean;
+  dragOver: boolean;
+  onSelect: () => void;
+  onSelectNote: (id: string) => void;
+  onDragStartNote: (event: React.DragEvent<HTMLDivElement>, note: OpenProblemNote) => void;
+  onDrop: (event: React.DragEvent<HTMLDivElement>) => void;
+  onUngroup: (noteId: string) => void;
+}
+
+function CandidateIsland({
+  candidate,
+  notes,
+  selected,
+  dragOver,
+  onSelect,
+  onSelectNote,
+  onDragStartNote,
+  onDrop,
+  onUngroup,
+}: CandidateIslandProps) {
+  const visibleNotes = notes.slice(0, 6);
+  const hiddenCount = Math.max(0, notes.length - visibleNotes.length);
+
+  return (
+    <section
+      data-selected={selected}
+      data-drag-over={dragOver}
+      onClick={(event) => {
+        event.stopPropagation();
+        onSelect();
+      }}
+      onDragOver={(event) => {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+      }}
+      onDrop={onDrop}
+      className={`survey-candidate-island relative w-[372px] rounded-[18px] border px-4 pb-4 pt-4 shadow-[0_24px_70px_rgba(0,0,0,0.22)] transition-[border-color,background-color,box-shadow,transform] duration-200 ${
+        dragOver
+          ? 'scale-[1.012] border-[#A69BFF] bg-[#302C55]/80 shadow-[0_0_0_4px_rgba(166,155,255,0.12),0_28px_70px_rgba(0,0,0,0.3)]'
+          : selected
+          ? 'border-[#8D83E2] bg-[#25233E]/90 shadow-[0_0_0_3px_rgba(141,131,226,0.12),0_28px_70px_rgba(0,0,0,0.28)]'
+          : 'border-[#45435F]/80 bg-[#242238]/80 hover:border-[#646083] hover:bg-[#292641]/85'
+      }`}
+    >
+      <span className="absolute right-4 top-4 rounded-full border border-[#5A5675] bg-[#171625]/70 px-2 py-0.5 text-[11px] text-[#A8A4BD]">
+        {notes.length}
+      </span>
+      <h2 className="max-w-[300px] pr-6 text-[17px] font-medium leading-[1.38] text-[#F0EFF8]">
+        {candidate.text}
+      </h2>
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        {visibleNotes.map((note) => (
+          <ObservationCard
+            key={note.id}
+            note={note}
+            grouped
+            compact
+            onSelect={() => onSelectNote(note.id)}
+            onUngroup={() => onUngroup(note.id)}
+            onDragStart={(event) => onDragStartNote(event, note)}
+          />
+        ))}
+        {notes.length === 0 && (
+          <div className="col-span-2 h-16 rounded-xl border border-dashed border-[#55516D] bg-[#161522]/25" />
+        )}
+        {hiddenCount > 0 && (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onSelect();
+            }}
+            className="min-h-[54px] rounded-lg border border-[#444159] bg-[#15141F]/55 text-[11px] text-[#AAA7BB] hover:border-[#686383] hover:text-[#E4E1F2]"
+          >
+            +{hiddenCount} more
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ProposalIsland({
+  proposal,
+  notes,
+  focused,
+  onReview,
+  onReject,
+}: {
+  proposal: ClusteringProposal;
+  notes: OpenProblemNote[];
+  focused: boolean;
+  onReview: () => void;
+  onReject: () => void;
+}) {
+  return (
+    <section
+      data-focused={focused}
+      onClick={(event) => event.stopPropagation()}
+      className={`survey-proposal-island w-[236px] rounded-[16px] border border-dashed px-3.5 py-4 backdrop-blur-sm transition-all ${
+        focused
+          ? 'border-[#B2AAFF] bg-[#756CC4]/18 shadow-[0_0_0_4px_rgba(178,170,255,0.1),0_24px_60px_rgba(0,0,0,0.3)]'
+          : 'border-[#68617F] bg-[#4A456B]/10 shadow-[0_18px_50px_rgba(0,0,0,0.18)]'
+      }`}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-[13px] font-medium text-[#D9D5ED]">Proposed cluster.</div>
+          <div className="mt-0.5 text-[11px] text-[#8F8AA2]">{notes.length} notes</div>
+        </div>
+        <Sparkles className="h-4 w-4 text-[#8F88BD]" />
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-1.5">
+        {notes.slice(0, 4).map((note) => (
+          <div
+            key={note.id}
+            className="survey-proposal-note min-h-[46px] rounded-lg border border-dashed border-[#514B68]/80 bg-[#15141F]/42 px-2 py-1.5 text-[10px] leading-[1.4] text-[#9994A8]"
+            style={clampTextStyle(2)}
+          >
+            {note.text}
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onReview}
+          className="rounded-lg border border-[#615C7B] bg-[#28253D] px-2.5 py-1.5 text-[11px] font-medium text-[#E6E2F4] hover:border-[#8E86BA] hover:bg-[#312D4B]"
+        >
+          Review
+        </button>
+        <button
+          type="button"
+          onClick={onReject}
+          className="rounded-lg px-2 py-1.5 text-[11px] text-[#9A95A8] hover:bg-[#211F2D] hover:text-[#D5D0E0]"
+        >
+          Reject
+        </button>
+      </div>
+      <div className="mt-3 font-mono text-[9px] text-[#6F6A80]">{proposal.modelId || SURVEY_MODEL_ID}</div>
+    </section>
+  );
+}
+
+function FloatingPanel({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <aside
+      onClick={(event) => event.stopPropagation()}
+      className="survey-floating-panel absolute right-5 top-5 z-40 flex max-h-[calc(100%-40px)] w-[328px] flex-col overflow-hidden rounded-xl border border-[#343D48] bg-[#11161D]/98 shadow-[0_28px_90px_rgba(0,0,0,0.48)] backdrop-blur-xl"
+    >
+      <div className="flex items-center justify-between border-b border-[#28303A] px-4 py-3">
+        <h3 className="text-[13px] font-medium text-[#E8EBEF]">{title}</h3>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-md p-1 text-[#7E8893] hover:bg-[#222932] hover:text-[#F0F2F4]"
+          aria-label="Close inspector"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-4">{children}</div>
+    </aside>
+  );
+}
+
+function NoteInspector({
+  note,
+  membership,
+  candidates,
+  onClose,
+  onSave,
+  onMove,
+  onDelete,
+}: {
+  note: OpenProblemNote;
+  membership?: CandidateQuestion;
+  candidates: CandidateQuestion[];
+  onClose: () => void;
+  onSave: (text: string, citation: string) => void;
+  onMove: (candidateId: string | null) => void;
+  onDelete: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(note.text);
+  const [source, setSource] = useState(note.citation || '');
+
+  useEffect(() => {
+    setEditing(false);
+    setText(note.text);
+    setSource(note.citation || '');
+  }, [note]);
+
+  return (
+    <FloatingPanel title="Observation" onClose={onClose}>
+      {editing ? (
+        <div className="space-y-3">
+          <label className="block">
+            <span className="mb-1.5 block text-[11px] text-[#8B95A1]">What is still open here?</span>
+            <textarea
+              value={text}
+              onChange={(event) => setText(event.target.value)}
+              rows={6}
+              className="w-full resize-none rounded-lg border border-[#303945] bg-[#0B0F14] px-3 py-2.5 text-[13px] leading-relaxed text-[#E5E9ED] outline-none focus:border-[#7C73C9]"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-[11px] text-[#8B95A1]">Source</span>
+            <input
+              value={source}
+              onChange={(event) => setSource(event.target.value)}
+              className="w-full rounded-lg border border-[#303945] bg-[#0B0F14] px-3 py-2 text-[12px] text-[#E5E9ED] outline-none focus:border-[#7C73C9]"
+            />
+          </label>
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => setEditing(false)}
+              className="rounded-lg px-3 py-1.5 text-[11px] text-[#8F98A3] hover:bg-[#202730] hover:text-[#E7EAED]"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={!text.trim() || !source.trim()}
+              onClick={() => {
+                onSave(text.trim(), source.trim());
+                setEditing(false);
+              }}
+              className="rounded-lg bg-[#E7E9ED] px-3 py-1.5 text-[11px] font-medium text-[#11151A] disabled:cursor-not-allowed disabled:opacity-35"
+            >
+              Save
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <p className="text-[14px] leading-[1.65] text-[#E1E5E9]">{note.text}</p>
+          {note.citation && (
+            <div className="survey-source-box mt-5 rounded-lg border border-[#28313B] bg-[#0D1218] p-3">
+              <div className="flex items-start gap-2 text-[12px] leading-relaxed text-[#A4ADB7]">
+                <BookOpen className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#687481]" />
+                <span>{note.citation}</span>
+              </div>
+            </div>
+          )}
+          <label className="mt-5 block">
+            <span className="mb-1.5 block text-[11px] text-[#7F8995]">Current question</span>
+            <div className="relative">
+              <select
+                value={membership?.id || ''}
+                onChange={(event) => onMove(event.target.value || null)}
+                className="w-full appearance-none rounded-lg border border-[#303945] bg-[#0D1218] px-3 py-2 pr-8 text-[12px] text-[#D8DDE2] outline-none focus:border-[#746BC1]"
+              >
+                <option value="">Loose observations</option>
+                {candidates.map((candidate) => (
+                  <option key={candidate.id} value={candidate.id}>
+                    {candidate.text}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2.5 top-2.5 h-3.5 w-3.5 text-[#687481]" />
+            </div>
+          </label>
+          <div className="mt-6 flex items-center justify-between border-t border-[#28303A] pt-4">
+            <button
+              type="button"
+              onClick={onDelete}
+              className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] text-[#A77D82] hover:bg-[#2C1B20] hover:text-[#E6A8AE]"
+            >
+              <Trash2 className="h-3 w-3" />
+              Delete
+            </button>
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[#333C47] bg-[#171D25] px-2.5 py-1.5 text-[11px] text-[#D7DCE1] hover:border-[#56606D] hover:bg-[#1C232C]"
+            >
+              <Edit3 className="h-3 w-3" />
+              Edit
+            </button>
+          </div>
+        </>
+      )}
+    </FloatingPanel>
+  );
+}
+
+function CandidateInspector({
+  candidate,
+  notes,
+  onClose,
+  onSave,
+  onRemove,
+  onPromote,
+  onSelectNote,
+}: {
+  candidate: CandidateQuestion;
+  notes: OpenProblemNote[];
+  onClose: () => void;
+  onSave: (text: string) => void;
+  onRemove: () => void;
+  onPromote: () => void;
+  onSelectNote: (id: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(candidate.text);
+
+  useEffect(() => {
+    setEditing(false);
+    setText(candidate.text);
+  }, [candidate]);
+
+  return (
+    <FloatingPanel title="Candidate question" onClose={onClose}>
+      {editing ? (
+        <div>
+          <textarea
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            rows={4}
+            autoFocus
+            className="w-full resize-none rounded-lg border border-[#3C4053] bg-[#0B0F14] px-3 py-2.5 text-[14px] leading-relaxed text-[#F0EFF8] outline-none focus:border-[#8E83E3]"
+          />
+          <div className="mt-3 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setEditing(false)}
+              className="rounded-lg px-3 py-1.5 text-[11px] text-[#8F98A3] hover:bg-[#202730] hover:text-[#E7EAED]"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={!text.trim()}
+              onClick={() => {
+                onSave(text.trim());
+                setEditing(false);
+              }}
+              className="rounded-lg bg-[#E8E6F2] px-3 py-1.5 text-[11px] font-medium text-[#171522] disabled:opacity-35"
+            >
+              Save wording
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <p className="text-[17px] font-medium leading-[1.5] text-[#F0EFF7]">{candidate.text}</p>
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-[#3A4050] bg-[#171C25] px-2.5 py-1.5 text-[11px] text-[#CDD2D8] hover:border-[#606879]"
+          >
+            <Edit3 className="h-3 w-3" />
+            Edit wording
+          </button>
+          <div className="mt-6">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-[11px] text-[#7F8995]">Contained observations</span>
+              <span className="text-[11px] text-[#777F8B]">{notes.length}</span>
+            </div>
+            <div className="space-y-2">
+              {notes.map((note) => (
+                <button
+                  key={note.id}
+                  type="button"
+                  onClick={() => onSelectNote(note.id)}
+                  className="w-full rounded-lg border border-[#303445] bg-[#181724] px-3 py-2 text-left text-[11px] leading-[1.5] text-[#C5C4CF] hover:border-[#5B5774] hover:bg-[#1D1B2B]"
+                >
+                  {note.text}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="mt-6 flex items-center justify-between border-t border-[#28303A] pt-4">
+            <button
+              type="button"
+              onClick={onRemove}
+              className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] text-[#A77D82] hover:bg-[#2C1B20] hover:text-[#E6A8AE]"
+            >
+              <Trash2 className="h-3 w-3" />
+              Delete island
+            </button>
+            <button
+              type="button"
+              onClick={onPromote}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[#615B83] bg-[#2B2844] px-3 py-1.5 text-[11px] font-medium text-[#E8E5F4] hover:border-[#8D84BE] hover:bg-[#343052]"
+            >
+              Test for promotion
+              <ArrowRight className="h-3 w-3" />
+            </button>
+          </div>
+        </>
+      )}
+    </FloatingPanel>
+  );
+}
+
+function CandidateComposer({
+  title,
+  notes,
+  selectedIds,
+  requireFixedSelection = false,
+  modelId,
+  onToggleNote,
+  onCancel,
+  onSubmit,
+  onReject,
+}: {
+  title: string;
+  notes: OpenProblemNote[];
+  selectedIds: string[];
+  requireFixedSelection?: boolean;
+  modelId?: string;
+  onToggleNote: (id: string) => void;
+  onCancel: () => void;
+  onSubmit: (wording: string) => void;
+  onReject?: () => void;
+}) {
+  const [wording, setWording] = useState('');
+
+  useEffect(() => setWording(''), [title, selectedIds.join('|')]);
+
+  return (
+    <div
+      className="absolute inset-0 z-50 flex items-center justify-center bg-[#06080B]/58 p-6 backdrop-blur-[2px]"
+      onClick={onCancel}
+    >
+      <section
+        onClick={(event) => event.stopPropagation()}
+        className="survey-modal w-full max-w-[520px] rounded-2xl border border-[#3A4350] bg-[#11161D] p-5 shadow-[0_34px_100px_rgba(0,0,0,0.62)]"
+      >
+        <div className="flex items-center justify-between gap-4">
+          <h3 className="text-[15px] font-medium text-[#EEF0F3]">{title}</h3>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-md p-1 text-[#7D8792] hover:bg-[#232A33] hover:text-white"
+            aria-label="Close candidate editor"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <label className="mt-5 block">
+          <span className="mb-2 block text-[11px] text-[#89939E]">Write the candidate question</span>
+          <textarea
+            autoFocus
+            value={wording}
+            onChange={(event) => setWording(event.target.value)}
+            rows={3}
+            placeholder="The question must be yours."
+            className="w-full resize-none rounded-xl border border-[#343E49] bg-[#0A0E13] px-3.5 py-3 text-[15px] leading-relaxed text-[#EFF1F3] outline-none placeholder:text-[#505A65] focus:border-[#867CDD]"
+          />
+        </label>
+        <div className="mt-4 grid max-h-52 grid-cols-2 gap-2 overflow-y-auto pr-1">
+          {notes.map((note) => {
+            const selected = selectedIds.includes(note.id);
+            return (
+              <button
+                key={note.id}
+                type="button"
+                disabled={requireFixedSelection}
+                onClick={() => onToggleNote(note.id)}
+                className={`relative min-h-[58px] rounded-lg border px-2.5 py-2 text-left text-[11px] leading-[1.45] transition-colors ${
+                  selected
+                    ? 'border-[#736BBC] bg-[#292640] text-[#E0DEEC]'
+                    : 'border-[#2C3540] bg-[#0D1218] text-[#909AA5] hover:border-[#4B5663]'
+                } ${requireFixedSelection ? 'cursor-default' : ''}`}
+              >
+                <span style={clampTextStyle(2)}>{note.text}</span>
+                {selected && <Check className="absolute right-2 top-2 h-3 w-3 text-[#9B92EA]" />}
+              </button>
+            );
+          })}
+        </div>
+        {modelId && <div className="mt-3 font-mono text-[9px] text-[#686375]">{modelId}</div>}
+        <div className="mt-5 flex items-center justify-between border-t border-[#28303A] pt-4">
+          {onReject ? (
+            <button
+              type="button"
+              onClick={onReject}
+              className="rounded-lg px-2.5 py-1.5 text-[11px] text-[#A08E94] hover:bg-[#2A1D22] hover:text-[#E1A9B0]"
+            >
+              Reject grouping
+            </button>
+          ) : (
+            <span />
+          )}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onCancel}
+              className="rounded-lg px-3 py-1.5 text-[11px] text-[#8D97A2] hover:bg-[#222932] hover:text-[#E6E9EC]"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={!wording.trim() || selectedIds.length === 0}
+              onClick={() => onSubmit(wording.trim())}
+              className="rounded-lg bg-[#E8E9EE] px-3.5 py-1.5 text-[11px] font-medium text-[#11151A] disabled:cursor-not-allowed disabled:opacity-30"
+            >
+              Create island
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function PromotionDialog({
+  candidate,
+  activeProjectTag,
+  onCancel,
+  onPromote,
+}: {
+  candidate: CandidateQuestion;
+  activeProjectTag: string;
+  onCancel: () => void;
+  onPromote: (claim: string, tags: string[], falsificationCondition: string) => void;
+}) {
+  const [claim, setClaim] = useState('');
+  const [falsifiable, setFalsifiable] = useState(false);
+  const [falsificationCondition, setFalsificationCondition] = useState('');
+  const [settledInYear, setSettledInYear] = useState(false);
+  const [tags, setTags] = useState<string[]>(
+    activeProjectTag && activeProjectTag !== 'all' ? [activeProjectTag] : ['tinyml']
+  );
+  const [tagInput, setTagInput] = useState('');
+  const valid =
+    claim.trim().length > 0 &&
+    falsifiable &&
+    falsificationCondition.trim().length > 0 &&
+    settledInYear;
+
+  const addTag = () => {
+    const nextTag = tagInput.trim().toLowerCase().replace(/\s+/g, '-');
+    if (nextTag && !tags.includes(nextTag)) setTags((current) => [...current, nextTag]);
+    setTagInput('');
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-[#05070A]/72 p-5 backdrop-blur-[3px]"
+      onClick={onCancel}
+    >
+      <section
+        onClick={(event) => event.stopPropagation()}
+        className="survey-modal max-h-[calc(100vh-40px)] w-full max-w-[620px] overflow-y-auto rounded-2xl border border-[#39424D] bg-[#11161D] p-5 shadow-[0_36px_110px_rgba(0,0,0,0.7)]"
+      >
+        <div className="flex items-start justify-between gap-5">
+          <div>
+            <div className="text-[11px] text-[#7F8994]">Promotion test</div>
+            <h3 className="mt-1 max-w-[500px] text-[18px] font-medium leading-[1.45] text-[#EDF0F2]">
+              {candidate.text}
+            </h3>
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-md p-1 text-[#7E8792] hover:bg-[#222932] hover:text-white"
+            aria-label="Close promotion test"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <label className="mt-5 block">
+          <span className="mb-1.5 block text-[11px] text-[#89939E]">Write a claim that answers it</span>
+          <textarea
+            value={claim}
+            onChange={(event) => setClaim(event.target.value)}
+            rows={3}
+            className="w-full resize-none rounded-xl border border-[#343E49] bg-[#0A0E13] px-3.5 py-3 text-[14px] leading-relaxed text-[#EFF1F3] outline-none focus:border-[#7E75D2]"
+          />
+        </label>
+        <div className="mt-4 space-y-3">
+          <label className="block rounded-xl border border-[#2F3843] bg-[#0D1218] p-3.5">
+            <span className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                checked={falsifiable}
+                onChange={(event) => setFalsifiable(event.target.checked)}
+                className="mt-0.5"
+              />
+              <span>
+                <span className="block text-[13px] font-medium text-[#E0E4E8]">This claim could be false.</span>
+                <span className="mt-0.5 block text-[11px] text-[#7F8994]">Commit to what would count against it.</span>
+              </span>
+            </span>
+            {falsifiable && (
+              <input
+                autoFocus
+                value={falsificationCondition}
+                onChange={(event) => setFalsificationCondition(event.target.value)}
+                placeholder="What result would show the claim is false?"
+                className="mt-3 w-full rounded-lg border border-[#343D48] bg-[#090D12] px-3 py-2 text-[12px] text-[#E5E8EB] outline-none placeholder:text-[#58626D] focus:border-[#776FC6]"
+              />
+            )}
+          </label>
+          <label className="flex items-start gap-3 rounded-xl border border-[#2F3843] bg-[#0D1218] p-3.5">
+            <input
+              type="checkbox"
+              checked={settledInYear}
+              onChange={(event) => setSettledInYear(event.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              <span className="block text-[13px] font-medium text-[#E0E4E8]">This could be settled within a year.</span>
+              <span className="mt-0.5 block text-[11px] text-[#7F8994]">With the methods and access you actually have.</span>
+            </span>
+          </label>
+        </div>
+        <div className="mt-4">
+          <span className="text-[11px] text-[#7F8994]">Tags</span>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            {tags.map((tag) => (
+              <span
+                key={tag}
+                className="inline-flex items-center gap-1 rounded-full border border-[#38414C] bg-[#171D24] px-2.5 py-1 text-[10px] text-[#C5CBD1]"
+              >
+                {tag}
+                <button type="button" onClick={() => setTags((current) => current.filter((item) => item !== tag))}>
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              </span>
+            ))}
+            <input
+              value={tagInput}
+              onChange={(event) => setTagInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  addTag();
+                }
+              }}
+              placeholder="Add tag"
+              className="w-24 rounded-full border border-[#343D48] bg-[#0A0E13] px-2.5 py-1 text-[10px] text-[#D9DDE1] outline-none focus:border-[#6F67B8]"
+            />
+          </div>
+        </div>
+        <div className="mt-6 flex items-center justify-between border-t border-[#28303A] pt-4">
+          <span className="text-[10px] text-[#6F7984]">Promotion is one-way.</span>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onCancel}
+              className="rounded-lg px-3 py-1.5 text-[11px] text-[#8E98A3] hover:bg-[#222932] hover:text-white"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={!valid}
+              onClick={() => onPromote(claim.trim(), tags, falsificationCondition.trim())}
+              className="rounded-lg bg-[#E8E9ED] px-4 py-1.5 text-[11px] font-medium text-[#11151A] disabled:cursor-not-allowed disabled:opacity-30"
+            >
+              Promote
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ObservationComposer({
+  onCancel,
+  onSubmit,
+}: {
+  onCancel: () => void;
+  onSubmit: (text: string, source: string) => void;
+}) {
+  const [text, setText] = useState('');
+  const [source, setSource] = useState('');
+  const valid = text.trim().length > 0 && source.trim().length > 0;
+
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (valid) onSubmit(text.trim(), source.trim());
+      }}
+      className="survey-floating-panel absolute right-0 top-10 z-[60] w-[330px] rounded-xl border border-[#37404B] bg-[#11161D] p-3.5 shadow-[0_24px_80px_rgba(0,0,0,0.58)]"
+    >
+      <textarea
+        autoFocus
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        rows={3}
+        placeholder="What is still open here?"
+        className="w-full resize-none rounded-lg border border-[#303945] bg-[#0A0E13] px-3 py-2.5 text-[13px] leading-relaxed text-[#E7EAED] outline-none placeholder:text-[#5D6772] focus:border-[#746BC2]"
+      />
+      <div className="mt-2 flex items-center gap-2">
+        <input
+          value={source}
+          onChange={(event) => setSource(event.target.value)}
+          placeholder="Source"
+          className="min-w-0 flex-1 rounded-lg border border-[#303945] bg-[#0A0E13] px-3 py-2 text-[11px] text-[#DCE0E4] outline-none placeholder:text-[#5D6772] focus:border-[#746BC2]"
+        />
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-lg px-2 py-2 text-[10px] text-[#7E8893] hover:bg-[#222932] hover:text-white"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          disabled={!valid}
+          className="rounded-lg bg-[#E7E9EC] px-3 py-2 text-[10px] font-medium text-[#11151A] disabled:cursor-not-allowed disabled:opacity-30"
+        >
+          Add observation
+        </button>
+      </div>
+    </form>
+  );
+}
+
 export function SurveyPane({
   openProblems,
   candidateQuestions,
@@ -58,1434 +987,527 @@ export function SurveyPane({
   activeProjectTag = 'all',
   onNavigateToMap,
 }: SurveyPaneProps) {
-  // ─── Composer Form State ───────────────────────────────────────────
-  const [obsText, setObsText] = useState('');
-  const [obsSource, setObsSource] = useState('');
-  const obsInputRef = useRef<HTMLInputElement | null>(null);
-
-  // ─── Editing Note / Candidate Modals ───────────────────────────────
-  const [editingNote, setEditingNote] = useState<OpenProblemNote | null>(null);
-  const [editNoteText, setEditNoteText] = useState('');
-  const [editNoteSource, setEditNoteSource] = useState('');
-
-  const [isCreatingCandidate, setIsCreatingCandidate] = useState(false);
-  const [newCandidateWording, setNewCandidateWording] = useState('');
-  const [newCandidateSelectedNotes, setNewCandidateSelectedNotes] = useState<string[]>([]);
-
-  const [editingCandidate, setEditingCandidate] = useState<CandidateQuestion | null>(null);
-  const [editCandidateText, setEditCandidateText] = useState('');
-
-  // ─── Promotion Test Modal State ────────────────────────────────────
-  const [promotingCandidate, setPromotingCandidate] = useState<CandidateQuestion | null>(null);
-  const [promoteClaimText, setPromoteClaimText] = useState('');
-  const [boxFalsifiable, setBoxFalsifiable] = useState(false);
-  const [falsificationCondition, setFalsificationCondition] = useState('');
-  const [boxSettledInYear, setBoxSettledInYear] = useState(false);
-  const [promoteTags, setPromoteTags] = useState<string[]>([]);
-  const [newTagInput, setNewTagInput] = useState('');
-
-  // ─── Post-Promotion Feedback Banner ────────────────────────────────
-  const [promotedSuccessInfo, setPromotedSuccessInfo] = useState<{
-    questionId: string;
-    questionText: string;
-  } | null>(null);
-
-  // ─── Drag and Drop ────────────────────────────────────────────────
+  const [selection, setSelection] = useState<SurveySelection>(null);
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [candidateComposerOpen, setCandidateComposerOpen] = useState(false);
+  const [candidateSelectedIds, setCandidateSelectedIds] = useState<string[]>([]);
+  const [reviewingProposalId, setReviewingProposalId] = useState<string | null>(null);
   const [draggedProblemId, setDraggedProblemId] = useState<string | null>(null);
   const [dragOverCandidateId, setDragOverCandidateId] = useState<string | null>(null);
-
-  // ─── Assign Dropdown per note ─────────────────────────────────────
-  const [assignDropdownNoteId, setAssignDropdownNoteId] = useState<string | null>(null);
-  const assignDropdownRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    const handleOutsideClick = (e: MouseEvent) => {
-      if (assignDropdownRef.current && !assignDropdownRef.current.contains(e.target as Node)) {
-        setAssignDropdownNoteId(null);
-      }
-    };
-    if (assignDropdownNoteId) {
-      document.addEventListener('mousedown', handleOutsideClick);
-    }
-    return () => document.removeEventListener('mousedown', handleOutsideClick);
-  }, [assignDropdownNoteId]);
-
-  // ─── Reviewable Model Clustering Proposals ─────────────────────────
+  const [looseDropActive, setLooseDropActive] = useState(false);
+  const [highlightedNoteId, setHighlightedNoteId] = useState<string | null>(null);
+  const [pendingHighlight, setPendingHighlight] = useState<{ text: string; source: string } | null>(
+    null
+  );
+  const [promotingCandidate, setPromotingCandidate] = useState<CandidateQuestion | null>(null);
+  const [promotedInfo, setPromotedInfo] = useState<{ id: string; text: string } | null>(null);
   const [proposals, setProposals] = useState<ClusteringProposal[]>([
     {
       id: 'prop-natural-images',
-      groupName: 'Does sparse coding depend on natural image statistics?',
-      sharedObservation: 'These notes all observe that only natural images were tested.',
-      workingPhrase: 'Does sparse coding depend on natural image statistics?',
+      groupName: '',
       problemIds: ['op-1', 'op-7', 'op-11'],
-      problemSnippets: [
-        'On-device INT4 quantization degrades attention map sparsity unpredictably across transformer layers.',
-        'Weight pruning masks derived from static saliency metrics fail to predict runtime throughput on systolic arrays.',
-        'Quantized activation outlier suppression algorithms increase static SRAM overhead beyond savings.',
-      ],
-      modelId: 'cx/gpt-5.6-sol',
+      problemSnippets: [],
+      modelId: SURVEY_MODEL_ID,
     },
   ]);
+  const composerRef = useRef<HTMLDivElement | null>(null);
 
-  // ─── Note Categorization & Hard Stop Logic ────────────────────────
-  // A note belongs to at most one candidate.
-  // We map problemId -> candidate it belongs to
   const problemToCandidateMap = useMemo(() => {
     const map = new Map<string, CandidateQuestion>();
-    candidateQuestions.forEach((cq) => {
-      cq.openProblemIds.forEach((pid) => {
-        if (!map.has(pid)) {
-          map.set(pid, cq);
-        }
+    [...candidateQuestions]
+      .sort((first, second) => first.createdAt - second.createdAt)
+      .forEach((candidate) => {
+        candidate.openProblemIds.forEach((problemId) => {
+          if (!map.has(problemId)) map.set(problemId, candidate);
+        });
       });
-    });
     return map;
   }, [candidateQuestions]);
 
-  const looseNotes = useMemo(() => {
-    return openProblems.filter((p) => !problemToCandidateMap.has(p.id));
-  }, [openProblems, problemToCandidateMap]);
+  const looseNotes = useMemo(
+    () => openProblems.filter((note) => !problemToCandidateMap.has(note.id)),
+    [openProblems, problemToCandidateMap]
+  );
+  const groupedNotes = useMemo(
+    () => openProblems.filter((note) => problemToCandidateMap.has(note.id)),
+    [openProblems, problemToCandidateMap]
+  );
+  const chronologicalCandidates = useMemo(
+    () => [...candidateQuestions].sort((first, second) => first.createdAt - second.createdAt),
+    [candidateQuestions]
+  );
+  const isHardStopActive = looseNotes.length >= 15 && candidateQuestions.length < 3;
+  const notesForCandidate = (candidateId: string) =>
+    openProblems.filter((note) => problemToCandidateMap.get(note.id)?.id === candidateId);
 
-  const clusteredNotes = useMemo(() => {
-    return openProblems.filter((p) => problemToCandidateMap.has(p.id));
-  }, [openProblems, problemToCandidateMap]);
+  const visibleProposals = useMemo(
+    () =>
+      proposals
+        .map((proposal) => ({
+          ...proposal,
+          problemIds: proposal.problemIds.filter((id) => looseNotes.some((note) => note.id === id)),
+        }))
+        .filter((proposal) => proposal.problemIds.length > 0),
+    [looseNotes, proposals]
+  );
+  const fieldHeight = Math.max(
+    820,
+    138 + Math.ceil(Math.max(1, looseNotes.length) / 3) * 114,
+    142 + visibleProposals.length * 250,
+    142 + chronologicalCandidates.length * 268
+  );
 
-  const looseCount = looseNotes.length;
-  const clusteredCount = clusteredNotes.length;
-  const candidateCount = candidateQuestions.length;
+  const reviewingProposal = visibleProposals.find(
+    (proposal) => proposal.id === reviewingProposalId
+  );
+  const selectedNote =
+    selection?.type === 'note' ? openProblems.find((note) => note.id === selection.id) : undefined;
+  const selectedCandidate =
+    selection?.type === 'candidate'
+      ? candidateQuestions.find((candidate) => candidate.id === selection.id)
+      : undefined;
 
-  // HARD STOP: "At 15 loose notes with fewer than 3 candidates: no new notes until three candidates exist."
-  const isHardStopActive = looseCount >= 15 && candidateCount < 3;
-
-  // Format date helper
-  const formatDate = (timestamp: number) => {
-    const d = new Date(timestamp);
-    return d.toLocaleDateString(undefined, {
-      month: 'short',
-      day: 'numeric',
-    });
-  };
-
-  // ─── Note Submission Handler ───────────────────────────────────────
-  const handleSubmitNote = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (isHardStopActive) return;
-
-    const trimmedText = obsText.trim();
-    const trimmedSource = obsSource.trim();
-
-    if (!trimmedText || !trimmedSource) return;
-
-    onAddOpenProblem(trimmedText, trimmedSource);
-    setObsText('');
-    setObsSource('');
-
-    // Immediately refocus observation field for rapid sequential capture
-    if (obsInputRef.current) {
-      obsInputRef.current.focus();
-    }
-  };
-
-  // ─── Candidate Creation Handlers ──────────────────────────────────
-  const handleOpenCreateCandidate = () => {
-    setNewCandidateWording('');
-    setNewCandidateSelectedNotes([]);
-    setIsCreatingCandidate(true);
-  };
-
-  const handleCommitCreateCandidate = () => {
-    const trimmed = newCandidateWording.trim();
-    if (!trimmed) return;
-
-    onAddCandidateQuestion(trimmed, newCandidateSelectedNotes);
-    setIsCreatingCandidate(false);
-    setNewCandidateWording('');
-    setNewCandidateSelectedNotes([]);
-  };
-
-  // ─── Model Proposal Actions ───────────────────────────────────────
-  const handleAcceptProposal = (proposal: ClusteringProposal) => {
-    // Per brief: "Accepting a grouping creates a candidate with those notes and opens its wording field for the user to write. Do not create the candidate with the model's phrase already committed as the user's wording."
-    setNewCandidateWording(''); // User must write their own wording
-    setNewCandidateSelectedNotes(proposal.problemIds);
-    setIsCreatingCandidate(true);
-    setProposals((prev) => prev.filter((p) => p.id !== proposal.id));
-  };
-
-  const handleRejectProposal = (proposalId: string) => {
-    setProposals((prev) => prev.filter((p) => p.id !== proposalId));
-  };
-
-  const handleTriggerExaminerClustering = () => {
-    if (looseNotes.length === 0) return;
-    const sampleNotes = looseNotes.slice(0, Math.min(4, looseNotes.length));
-    const newProposal: ClusteringProposal = {
-      id: `prop-${Date.now()}`,
-      groupName: 'How do memory footprint and quantization affect transformer latency on microcontrollers?',
-      sharedObservation: 'These loose notes identify memory hierarchy bottlenecks during edge execution.',
-      workingPhrase: 'How do memory footprint and quantization affect transformer latency on microcontrollers?',
-      problemIds: sampleNotes.map((n) => n.id),
-      problemSnippets: sampleNotes.map((n) => n.text),
-      modelId: 'cx/gpt-5.6-sol',
-    };
-    setProposals((prev) => [newProposal, ...prev]);
-  };
-
-  // ─── Promotion Test Modal Handlers ────────────────────────────────
-  const handleOpenPromoteModal = (candidate: CandidateQuestion) => {
-    setPromotingCandidate(candidate);
-    setPromoteClaimText('');
-    setBoxFalsifiable(false);
-    setFalsificationCondition('');
-    setBoxSettledInYear(false);
-    const initialTags = activeProjectTag && activeProjectTag !== 'all' ? [activeProjectTag] : ['tinyml'];
-    setPromoteTags(initialTags);
-    setNewTagInput('');
-  };
-
-  const handleAddTag = () => {
-    const trimmed = newTagInput.trim().toLowerCase().replace(/\s+/g, '-');
-    if (trimmed && !promoteTags.includes(trimmed)) {
-      setPromoteTags([...promoteTags, trimmed]);
-      setNewTagInput('');
-    }
-  };
-
-  const handleRemoveTag = (tagToRemove: string) => {
-    setPromoteTags(promoteTags.filter((t) => t !== tagToRemove));
-  };
-
-  const isPromoteValid =
-    promoteClaimText.trim().length > 0 &&
-    boxFalsifiable &&
-    falsificationCondition.trim().length > 0 &&
-    boxSettledInYear;
-
-  const getMissingPromotionReason = (): string => {
-    if (!promoteClaimText.trim()) return 'Write a claim that answers it';
-    if (!boxFalsifiable) return 'Confirm claim could be false';
-    if (!falsificationCondition.trim()) return 'Specify what would show claim false';
-    if (!boxSettledInYear) return 'Confirm settled within a year';
-    return '';
-  };
-
-  const handleCommitPromotion = () => {
-    if (!promotingCandidate || !isPromoteValid) return;
-
-    const newQId = onPromoteCandidate(
-      promotingCandidate,
-      promoteClaimText.trim(),
-      promoteTags,
-      falsificationCondition.trim()
+  useEffect(() => {
+    if (!pendingHighlight) return;
+    const created = openProblems.find(
+      (note) => note.text === pendingHighlight.text && note.citation === pendingHighlight.source
     );
+    if (!created) return;
+    setHighlightedNoteId(created.id);
+    setPendingHighlight(null);
+    const timeout = window.setTimeout(() => setHighlightedNoteId(null), 1800);
+    return () => window.clearTimeout(timeout);
+  }, [openProblems, pendingHighlight]);
 
-    const questionText = promotingCandidate.text;
-    const finalId = typeof newQId === 'string' ? newQId : `q-${Date.now()}`;
+  useEffect(() => {
+    if (!composerOpen) return;
+    const closeComposer = (event: MouseEvent) => {
+      if (composerRef.current && !composerRef.current.contains(event.target as Node)) {
+        setComposerOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', closeComposer);
+    return () => document.removeEventListener('mousedown', closeComposer);
+  }, [composerOpen]);
 
-    setPromotedSuccessInfo({
-      questionId: finalId,
-      questionText,
-    });
-
-    setPromotingCandidate(null);
+  const startNoteDrag = (event: React.DragEvent<HTMLDivElement>, note: OpenProblemNote) => {
+    setDraggedProblemId(note.id);
+    setResearchItemDragData(event.dataTransfer, { id: note.id, type: 'SURVEY', label: note.text });
+    event.dataTransfer.setData(SURVEY_DRAG_TYPE, note.id);
+    event.dataTransfer.effectAllowed = 'copyMove';
   };
 
-  // ─── Demonstration State Presets ──────────────────────────────────
-  const [isDemoMenuOpen, setIsDemoMenuOpen] = useState(false);
+  const getDraggedNoteId = (event: React.DragEvent) =>
+    event.dataTransfer.getData(SURVEY_DRAG_TYPE) || draggedProblemId;
 
-  const handleApplyPreset = (preset: 'default' | '13loose' | '15sealed' | '15cleared') => {
-    setIsDemoMenuOpen(false);
-    if (preset === '13loose') {
-      // 13 loose notes, 2 candidates
-      while (candidateQuestions.length > 2) {
-        onRemoveCandidateQuestion(candidateQuestions[candidateQuestions.length - 1].id);
+  const moveNote = (problemId: string, targetCandidateId: string | null) => {
+    candidateQuestions.forEach((candidate) => {
+      if (candidate.openProblemIds.includes(problemId) && candidate.id !== targetCandidateId) {
+        onUnlinkProblemFromCandidate(candidate.id, problemId);
       }
-      const needed = 13 - looseCount;
-      if (needed > 0) {
-        for (let i = 0; i < needed; i++) {
-          onAddOpenProblem(
-            `Demonstration note #${i + 1}: Unresolved timing jitter in low-power oscillator wakes.`,
-            'Demo Setup 2024'
-          );
-        }
-      }
-    } else if (preset === '15sealed') {
-      // 15 loose notes, 2 candidates -> Seals composer
-      while (candidateQuestions.length > 2) {
-        onRemoveCandidateQuestion(candidateQuestions[candidateQuestions.length - 1].id);
-      }
-      const needed = 15 - looseCount;
-      if (needed > 0) {
-        for (let i = 0; i < needed; i++) {
-          onAddOpenProblem(
-            `Demonstration note #${i + 1}: Memory access contention on scratchpad SRAM.`,
-            'Demo Setup 2024'
-          );
-        }
-      }
-    } else if (preset === '15cleared') {
-      // 15 loose notes, 3 candidates -> Stop cleared!
-      if (candidateQuestions.length < 3) {
-        onAddCandidateQuestion('Does scratchpad contention bound multi-core inference throughput?', []);
+    });
+    if (targetCandidateId) {
+      const target = candidateQuestions.find((candidate) => candidate.id === targetCandidateId);
+      if (target && !target.openProblemIds.includes(problemId)) {
+        onLinkProblemToCandidate(targetCandidateId, problemId);
       }
     }
+  };
+
+  const handleCandidateDrop = (event: React.DragEvent<HTMLDivElement>, candidateId: string) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const problemId = getDraggedNoteId(event);
+    if (problemId) moveNote(problemId, candidateId);
+    setDraggedProblemId(null);
+    setDragOverCandidateId(null);
+    setLooseDropActive(false);
+  };
+
+  const handleLooseDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const problemId = getDraggedNoteId(event);
+    if (problemId) moveNote(problemId, null);
+    setDraggedProblemId(null);
+    setDragOverCandidateId(null);
+    setLooseDropActive(false);
+  };
+
+  const openCandidateComposer = (selectedIds: string[] = []) => {
+    setCandidateSelectedIds(selectedIds);
+    setCandidateComposerOpen(true);
+  };
+
+  const triggerProposal = () => {
+    if (looseNotes.length === 0) return;
+    onClusterNotes(looseNotes.map((note) => note.id));
+    const selected = looseNotes.slice(0, Math.min(4, looseNotes.length));
+    setProposals((current) => [
+      {
+        id: `prop-${Date.now()}`,
+        groupName: '',
+        problemIds: selected.map((note) => note.id),
+        problemSnippets: selected.map((note) => note.text),
+        modelId: SURVEY_MODEL_ID,
+      },
+      ...current,
+    ]);
   };
 
   return (
-    <div
-      id="survey-pane-container"
-      className="h-full w-full flex flex-col bg-paper text-ink overflow-hidden select-text"
-    >
-      {/* ─── Top Survey Header ──────────────────────────────────────── */}
-      <header
-        id="survey-header"
-        className="shrink-0 px-6 py-3.5 border-b border-rule bg-paper flex items-center justify-between gap-4 z-10"
-      >
-        <div className="flex items-baseline gap-4">
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-[11px] font-bold tracking-[0.1em] uppercase text-ink">
-              SURVEY
-            </span>
-            <ExplainerButton explainerKey="survey_gate" surfaceId="survey" />
+    <div className="survey-surface flex h-full w-full flex-col overflow-hidden bg-[#0B0D10] font-sans text-[#E7EAED]">
+      <header className="survey-header relative z-50 flex h-[62px] shrink-0 items-center justify-between border-b border-[#242B34] bg-[#0B0D10] px-6">
+        <h1 className="text-[16px] font-semibold tracking-[-0.01em] text-[#F1F3F5]">Survey</h1>
+        <div className="flex items-center gap-5">
+          <div className="flex items-center gap-2 text-[12px] text-[#929BA5]">
+            <span>{looseNotes.length} loose</span>
+            <FifteenSegmentRing count={looseNotes.length} sealed={isHardStopActive} />
           </div>
-          <span className="font-serif italic text-[15px] text-ink-muted">
-            What is still open here?
-          </span>
-        </div>
-
-        {/* Header Right Actions */}
-        <div className="flex items-center gap-2.5">
-          {/* Propose clusters button */}
-          <button
-            id="btn-propose-clusters-header"
-            onClick={handleTriggerExaminerClustering}
-            title="Ask the Examiner to propose groupings from your loose notes"
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[12px] font-sans font-medium text-ink bg-surface border border-rule rounded-[2px] hover:border-ink-muted transition-colors cursor-pointer"
-          >
-            <Layers className="w-3.5 h-3.5 text-ink-muted" />
-            <span>Propose clusters</span>
-          </button>
-
-          {/* + Candidate Question button */}
-          <button
-            id="btn-add-candidate-header"
-            onClick={handleOpenCreateCandidate}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[12px] font-sans font-medium text-ink bg-surface border border-rule rounded-[2px] hover:border-ink-muted transition-colors cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Candidate question</span>
-          </button>
-
-          {/* Demonstration States Dropdown for testing */}
-          <div className="relative">
+          <span className="text-[12px] text-[#7F8893]">{groupedNotes.length} grouped</span>
+          <div className="relative" ref={composerRef}>
             <button
-              id="btn-demo-states-menu"
-              onClick={() => setIsDemoMenuOpen(!isDemoMenuOpen)}
-              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-mono text-ink-muted hover:text-ink bg-surface/70 border border-rule rounded-[2px] hover:border-ink-muted transition-colors cursor-pointer"
-              title="Quickly view required testing states"
+              type="button"
+              disabled={isHardStopActive}
+              onClick={() => setComposerOpen((open) => !open)}
+              className="survey-add-button inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#343C47] bg-[#151A21] px-3 text-[11px] font-medium text-[#E2E6EA] shadow-sm hover:border-[#515B68] hover:bg-[#192029] disabled:cursor-not-allowed disabled:border-[#292E36] disabled:bg-[#101318] disabled:text-[#555D66]"
             >
-              <span>State test presets</span>
-              <ChevronDown className="w-3 h-3" />
+              <Plus className="h-3.5 w-3.5" />
+              Add observation
             </button>
-
-            {isDemoMenuOpen && (
-              <div
-                className="absolute right-0 mt-1 w-64 bg-surface border border-rule shadow-lg rounded-[2px] p-1.5 z-50 flex flex-col gap-1 text-[12px] font-sans"
-              >
-                <div className="px-2 py-1 text-[10px] font-mono uppercase tracking-wider text-ink-muted border-b border-rule">
-                  Test & Verification States
-                </div>
-                <button
-                  onClick={() => handleApplyPreset('13loose')}
-                  className="w-full text-left px-2 py-1.5 rounded-[2px] hover:bg-paper text-ink transition-colors flex items-center justify-between"
-                >
-                  <span>13 loose · 2 candidates</span>
-                  <span className="font-mono text-[10px] text-ink-muted">Approaching limit</span>
-                </button>
-                <button
-                  onClick={() => handleApplyPreset('15sealed')}
-                  className="w-full text-left px-2 py-1.5 rounded-[2px] hover:bg-paper text-ink transition-colors flex items-center justify-between"
-                >
-                  <span>15 loose · 2 candidates</span>
-                  <span className="font-mono text-[10px] text-missing font-bold">Sealed Stop</span>
-                </button>
-                <button
-                  onClick={() => handleApplyPreset('15cleared')}
-                  className="w-full text-left px-2 py-1.5 rounded-[2px] hover:bg-paper text-ink transition-colors flex items-center justify-between"
-                >
-                  <span>15 loose · 3 candidates</span>
-                  <span className="font-mono text-[10px] text-holds font-bold">Stop Cleared</span>
-                </button>
-                <button
-                  onClick={() => {
-                    handleTriggerExaminerClustering();
-                    setIsDemoMenuOpen(false);
-                  }}
-                  className="w-full text-left px-2 py-1.5 rounded-[2px] hover:bg-paper text-ink transition-colors flex items-center justify-between border-t border-rule mt-0.5 pt-1.5"
-                >
-                  <span>Generate Model Proposal</span>
-                  <Layers className="w-3 h-3 text-ink-muted" />
-                </button>
-              </div>
+            {composerOpen && !isHardStopActive && (
+              <ObservationComposer
+                onCancel={() => setComposerOpen(false)}
+                onSubmit={(text, source) => {
+                  setPendingHighlight({ text, source });
+                  onAddOpenProblem(text, source);
+                  setComposerOpen(false);
+                }}
+              />
             )}
           </div>
         </div>
       </header>
 
-      {/* Dismissible Surface Purpose Note */}
-      <SurfaceNote surfaceId="survey" />
-
-      {/* ─── Promoted Success Notice Banner ─────────────────────────── */}
-      {promotedSuccessInfo && (
+      <div
+        className="survey-canvas relative min-h-0 flex-1 overflow-auto bg-[#0B0D10]"
+        onClick={() => setSelection(null)}
+      >
         <div
-          id="promoted-success-banner"
-          className="shrink-0 px-6 py-2.5 bg-[#EEF5F0] dark:bg-[#1A2E22] border-b border-holds/40 flex items-center justify-between text-xs"
+          id="survey-cluster-field"
+          aria-label="Survey cluster field"
+          className="relative min-w-[1368px] overflow-hidden"
+          style={{ height: fieldHeight }}
+          onDragOver={(event) => {
+            if (!draggedProblemId) return;
+            event.preventDefault();
+            setLooseDropActive(true);
+          }}
+          onDragLeave={(event) => {
+            if (event.currentTarget === event.target) setLooseDropActive(false);
+          }}
+          onDrop={handleLooseDrop}
         >
-          <div className="flex items-center gap-2 text-ink">
-            <span className="font-mono font-bold text-holds uppercase tracking-wider text-[11px]">
-              ✓ PROMOTED TO QUESTION
-            </span>
-            <span className="font-serif italic text-[14px]">
-              "{promotedSuccessInfo.questionText}"
-            </span>
-            <span className="text-ink-muted text-[11px] font-sans">
-              (Unwritten reason registered on Map)
-            </span>
-          </div>
+          <div
+            className={`survey-lane survey-loose-field pointer-events-none absolute bottom-6 left-6 top-5 w-[612px] rounded-[24px] border transition-all duration-200 ${
+              isHardStopActive
+                ? 'border-[#4A465B]/55 bg-[#171622]/25 shadow-[inset_0_0_90px_rgba(72,66,105,0.16)]'
+                : looseDropActive
+                ? 'border-dashed border-[#8177C8]/65 bg-[#26233B]/15'
+                : 'border-[#171D24]/65 bg-[radial-gradient(ellipse_at_top_left,rgba(35,43,52,0.22),transparent_68%)]'
+            }`}
+          />
 
-          <div className="flex items-center gap-3">
-            {onNavigateToMap && (
-              <button
-                id="btn-view-promoted-on-map"
-                onClick={() => onNavigateToMap(promotedSuccessInfo.questionId)}
-                className="inline-flex items-center gap-1 text-[11px] font-sans font-medium text-holds hover:underline cursor-pointer"
-              >
-                <span>View on Map</span>
-                <ArrowRight className="w-3 h-3" />
-              </button>
-            )}
-            <button
-              onClick={() => setPromotedSuccessInfo(null)}
-              className="text-ink-muted hover:text-ink p-1 rounded-[2px] cursor-pointer"
-              title="Dismiss banner"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-      )}
+          <div className="survey-lane survey-candidate-field pointer-events-none absolute bottom-6 left-[926px] top-5 w-[418px] rounded-[24px] border" />
 
-      {/* ─── Main Two-Column Surface ────────────────────────────────── */}
-      <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-rule overflow-hidden">
-        {/* ═══════════════════════════════════════════════════════════════
-            LEFT COLUMN: OPEN PROBLEMS PILE (Raw Material)
-            ═══════════════════════════════════════════════════════════════ */}
-        <section
-          id="open-problems-column"
-          aria-label="Open Problems Pile"
-          className="h-full flex flex-col min-h-0 bg-paper/40 overflow-hidden"
-        >
-          {/* Left Column Header */}
-          <div className="shrink-0 px-5 py-3 border-b border-rule bg-paper/90 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-[11px] font-bold uppercase tracking-[0.08em] text-ink">
-                OPEN PROBLEMS
-              </span>
-              <span className="text-rule font-mono text-[10px]">·</span>
-              <span className="font-mono text-[12px] font-bold text-ink">
-                {looseCount} loose
-              </span>
-              <span className="text-rule font-mono text-[10px]">·</span>
-              <span className="font-mono text-[12px] text-ink-muted">
-                {clusteredCount} clustered
-              </span>
-            </div>
-
-            {/* Approaching threshold indicator */}
-            {looseCount >= 13 && !isHardStopActive && (
-              <span className="font-mono text-[10px] text-weak tracking-tight font-medium">
-                {looseCount} loose · {candidateCount} {candidateCount === 1 ? 'candidate' : 'candidates'}
-              </span>
-            )}
-          </div>
-
-          {/* Persistent Note Composer / Sealed Box */}
-          <div className="shrink-0 p-4 border-b border-rule bg-surface/50">
-            {isHardStopActive ? (
-              /* ─── SEALED COMPOSER (HARD STOP) ─────────────────────────── */
-              <div
-                id="composer-hard-stop-box"
-                className="p-4 bg-paper border border-missing/60 rounded-[2px] flex flex-col gap-3.5 select-none"
-              >
-                <div className="flex items-center justify-between border-b border-missing/30 pb-2">
-                  <div className="flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 text-missing shrink-0" />
-                    <span className="font-mono text-[11px] font-bold uppercase tracking-[0.1em] text-missing">
-                      CAPTURE CLOSED
-                    </span>
-                  </div>
-                  <span className="font-mono text-[11px] font-bold text-ink">
-                    {looseCount} loose notes, {candidateCount} {candidateCount === 1 ? 'candidate' : 'candidates'}.
-                  </span>
-                </div>
-
-                <p className="font-serif text-[14px] leading-relaxed text-ink">
-                  Group these notes into at least 3 candidate questions before writing another.
-                  The pile is large enough to show a pattern — find it.
-                </p>
-
-                <div className="flex justify-end pt-1">
-                  <button
-                    id="btn-hardstop-propose-clusters"
-                    onClick={handleTriggerExaminerClustering}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-sans font-medium text-ink bg-surface border border-rule rounded-[2px] hover:border-ink-muted active:bg-paper transition-colors cursor-pointer"
-                  >
-                    <Layers className="w-3.5 h-3.5 text-ink-muted" />
-                    <span>Propose clusters from my notes</span>
-                  </button>
-                </div>
+          <div className="survey-lane-header absolute left-10 top-8 w-[560px]" data-kind="observation">
+            <div>
+              <div className="survey-lane-title">
+                <span className="survey-lane-dot" />
+                Open problems
               </div>
-            ) : (
-              /* ─── ACTIVE PERSISTENT COMPOSER ─────────────────────────── */
-              <form
-                id="open-problem-composer-form"
-                onSubmit={handleSubmitNote}
-                className="flex flex-col gap-2 bg-surface p-3 border border-rule rounded-[2px]"
-              >
-                <div className="flex items-center justify-between text-[10px] font-mono text-ink-muted uppercase tracking-wider">
-                  <span>Fast Note Capture</span>
-                  <span>Enter to commit</span>
-                </div>
+              <p>Unresolved observations, kept separate until a pattern is defensible.</p>
+            </div>
+            <span className="survey-lane-count">{looseNotes.length}</span>
+          </div>
 
-                {/* Field 1: Observation (User Serif) */}
-                <input
-                  id="input-problem-observation"
-                  ref={obsInputRef}
-                  type="text"
-                  placeholder="What is still open here? *"
-                  value={obsText}
-                  onChange={(e) => setObsText(e.target.value)}
-                  className="w-full bg-paper border border-rule px-3 py-1.5 text-[15px] font-serif text-ink placeholder:text-ink-muted/60 placeholder:font-serif rounded-[2px] focus:border-ink focus:outline-none"
-                />
+          <div className="survey-bridge-caption absolute left-[676px] top-8 flex w-[198px] items-center justify-center gap-2">
+            <Sparkles className="h-3 w-3" />
+            <span>Assistant proposal</span>
+            <span className="survey-lane-count">{visibleProposals.length}</span>
+          </div>
 
-                {/* Field 2: Source (Secondary Sans) + Submit */}
-                <div className="flex items-center gap-2">
-                  <input
-                    id="input-problem-source"
-                    type="text"
-                    placeholder="Source (e.g. Olshausen & Field 1996, talk, meeting) *"
-                    value={obsSource}
-                    onChange={(e) => setObsSource(e.target.value)}
-                    className="flex-1 bg-paper border border-rule px-2.5 py-1 text-[12px] font-sans text-ink placeholder:text-ink-muted/60 rounded-[2px] focus:border-ink focus:outline-none"
+          <div className="survey-bridge-line absolute left-[618px] top-[226px] w-[308px]" aria-hidden="true" />
+
+          <div className="survey-lane-header absolute left-[946px] top-8 w-[278px]" data-kind="candidate">
+            <div>
+              <div className="survey-lane-title">
+                <span className="survey-lane-dot" />
+                Candidate questions
+              </div>
+              <p>Accepted structures that may become real questions.</p>
+            </div>
+            <span className="survey-lane-count">{chronologicalCandidates.length}</span>
+          </div>
+
+          <div className={isHardStopActive ? 'opacity-45 transition-opacity duration-300' : ''}>
+            {looseNotes.map((note, index) => {
+              const column = index % 3;
+              const row = Math.floor(index / 3);
+              const left = 42 + column * 190;
+              const top = 104 + row * 114;
+              return (
+                <div key={note.id} className="absolute" style={{ left, top }}>
+                  <ObservationCard
+                    note={note}
+                    selected={selection?.type === 'note' && selection.id === note.id}
+                    highlighted={highlightedNoteId === note.id}
+                    onSelect={() => setSelection({ type: 'note', id: note.id })}
+                    onEdit={() => setSelection({ type: 'note', id: note.id })}
+                    onDelete={() => {
+                      onRemoveOpenProblem(note.id);
+                      if (selection?.type === 'note' && selection.id === note.id) setSelection(null);
+                    }}
+                    onDragStart={(event) => startNoteDrag(event, note)}
                   />
-
-                  <button
-                    id="btn-submit-open-problem"
-                    type="submit"
-                    disabled={!obsText.trim() || !obsSource.trim()}
-                    className="inline-flex items-center justify-center px-3 py-1 text-[12px] font-sans font-medium text-paper bg-ink rounded-[2px] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-ink/90 transition-colors cursor-pointer shrink-0"
-                  >
-                    Add note
-                  </button>
                 </div>
-              </form>
-            )}
+              );
+            })}
           </div>
 
-          {/* Open Problems Scrollable Pile */}
-          <div
-            id="open-problems-pile-list"
-            className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col gap-3"
-          >
-            {openProblems.length === 0 ? (
-              /* ─── EMPTY STATE: NOTHING OPEN YET ──────────────────────── */
+          {chronologicalCandidates.map((candidate, index) => {
+            const top = 104 + index * 268;
+            return (
               <div
-                id="empty-open-problems-state"
-                className="my-auto p-6 bg-surface/40 border border-dashed border-rule rounded-[2px] text-center flex flex-col items-center gap-3"
+                key={candidate.id}
+                className="absolute"
+                style={{ left: 948, top }}
+                onDragEnter={() => setDragOverCandidateId(candidate.id)}
+                onDragLeave={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget as Node)) {
+                    setDragOverCandidateId(null);
+                  }
+                }}
               >
-                <span className="font-mono text-[11px] font-bold uppercase tracking-[0.1em] text-ink-muted">
-                  NOTHING OPEN YET
-                </span>
-                <p className="font-sans text-[13px] text-ink-muted max-w-md">
-                  Write what a paper left unresolved. One line, with its source.
-                </p>
-                <blockquote className="font-serif italic text-[14px] text-ink/80 border-l-2 border-rule pl-3 max-w-md text-left mt-1">
-                  “Nobody has tested whether sparse coding holds under non-natural image statistics.”
-                  <footer className="font-sans not-italic text-[11px] text-ink-muted mt-1">
-                    — Olshausen & Field 1996, discussion
-                  </footer>
-                </blockquote>
+                <CandidateIsland
+                  candidate={candidate}
+                  notes={notesForCandidate(candidate.id)}
+                  selected={selection?.type === 'candidate' && selection.id === candidate.id}
+                  dragOver={dragOverCandidateId === candidate.id}
+                  onSelect={() => setSelection({ type: 'candidate', id: candidate.id })}
+                  onSelectNote={(id) => setSelection({ type: 'note', id })}
+                  onDragStartNote={startNoteDrag}
+                  onDrop={(event) => handleCandidateDrop(event, candidate.id)}
+                  onUngroup={(noteId) => moveNote(noteId, null)}
+                />
               </div>
-            ) : (
-              openProblems.map((note) => {
-                const assignedCandidate = problemToCandidateMap.get(note.id);
-                const isLoose = !assignedCandidate;
+            );
+          })}
 
-                return (
-                  <div
-                    key={note.id}
-                    id={`open-problem-card-${note.id}`}
-                    draggable={isLoose}
-                    onDragStart={(e) => {
-                      setDraggedProblemId(note.id);
-                      setResearchItemDragData(e.dataTransfer, {
-                        type: 'SURVEY',
-                        id: note.id,
-                        label: note.text,
-                      });
-                      e.dataTransfer.setData('text/plain', note.id);
-                    }}
-                    onDragEnd={() => setDraggedProblemId(null)}
-                    className={`relative p-3 rounded-[2px] transition-all flex flex-col gap-2 ${
-                      isLoose
-                        ? 'bg-surface border border-dashed border-rule hover:border-ink-muted shadow-[0_1px_2px_rgba(0,0,0,0.02)]'
-                        : 'bg-paper/70 border border-rule/50 opacity-85'
-                    }`}
-                  >
-                    {/* Top Row: State indicator & timestamp & actions */}
-                    <div className="flex items-center justify-between text-[11px] font-mono">
-                      <div className="flex items-center gap-1.5">
-                        {isLoose ? (
-                          <>
-                            <div className="cursor-grab active:cursor-grabbing text-ink-muted hover:text-ink">
-                              <GripVertical className="w-3.5 h-3.5" />
-                            </div>
-                            <span className="text-[10px] uppercase font-bold tracking-wider text-ink-muted">
-                              LOOSE
-                            </span>
-                          </>
-                        ) : (
-                          <div className="flex items-center gap-1 text-[11px] text-ink-muted">
-                            <CornerDownRight className="w-3 h-3 text-ink-muted shrink-0" />
-                            <span className="font-sans text-[11px] truncate max-w-[220px]">
-                              Clustered in:{' '}
-                              <strong className="font-medium text-ink">
-                                {assignedCandidate.text}
-                              </strong>
-                            </span>
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-ink-muted/70">
-                          {formatDate(note.createdAt)}
-                        </span>
-
-                        {/* Quick Assign / Reassign Dropdown */}
-                        <div className="relative">
-                          <button
-                            onClick={() =>
-                              setAssignDropdownNoteId(
-                                assignDropdownNoteId === note.id ? null : note.id
-                              )
-                            }
-                            className="text-[11px] font-sans text-ink-muted hover:text-ink px-1.5 py-0.5 rounded-[2px] border border-rule hover:bg-surface transition-colors cursor-pointer"
-                            title="Assign to candidate question"
-                          >
-                            {isLoose ? '+ Group' : 'Move'}
-                          </button>
-
-                          {assignDropdownNoteId === note.id && (
-                            <div
-                              ref={assignDropdownRef}
-                              className="absolute right-0 mt-1 w-60 bg-surface border border-rule shadow-md rounded-[2px] p-1.5 z-40 flex flex-col gap-1 text-[12px] font-sans"
-                            >
-                              <div className="px-2 py-1 text-[10px] font-mono uppercase tracking-wider text-ink-muted border-b border-rule">
-                                Assign to Candidate
-                              </div>
-                              {candidateQuestions.length === 0 ? (
-                                <div className="p-2 text-[11px] text-ink-muted italic">
-                                  No candidates exist yet. Create one first.
-                                </div>
-                              ) : (
-                                candidateQuestions.map((cq) => {
-                                  const isCurrent = assignedCandidate?.id === cq.id;
-                                  return (
-                                    <button
-                                      key={cq.id}
-                                      onClick={() => {
-                                        onLinkProblemToCandidate(cq.id, note.id);
-                                        setAssignDropdownNoteId(null);
-                                      }}
-                                      className={`w-full text-left px-2 py-1.5 rounded-[2px] transition-colors flex items-center justify-between ${
-                                        isCurrent
-                                          ? 'bg-paper text-ink font-medium'
-                                          : 'hover:bg-paper text-ink'
-                                      }`}
-                                    >
-                                      <span className="truncate pr-2">{cq.text}</span>
-                                      {isCurrent && <Check className="w-3 h-3 text-holds" />}
-                                    </button>
-                                  );
-                                })
-                              )}
-                              {!isLoose && (
-                                <button
-                                  onClick={() => {
-                                    if (assignedCandidate) {
-                                      onUnlinkProblemFromCandidate(
-                                        assignedCandidate.id,
-                                        note.id
-                                      );
-                                    }
-                                    setAssignDropdownNoteId(null);
-                                  }}
-                                  className="w-full text-left px-2 py-1.5 rounded-[2px] text-missing hover:bg-paper border-t border-rule mt-0.5 pt-1.5 transition-colors"
-                                >
-                                  Return to loose
-                                </button>
-                              )}
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Edit Note */}
-                        <button
-                          onClick={() => {
-                            setEditingNote(note);
-                            setEditNoteText(note.text);
-                            setEditNoteSource(note.citation || '');
-                          }}
-                          className="text-ink-muted hover:text-ink p-1 rounded-[2px] cursor-pointer"
-                          title="Edit note"
-                        >
-                          <Pencil className="w-3 h-3" />
-                        </button>
-
-                        {/* Delete Note (Only allowed when loose!) */}
-                        <button
-                          onClick={() => {
-                            if (isLoose) {
-                              onRemoveOpenProblem(note.id);
-                            }
-                          }}
-                          disabled={!isLoose}
-                          className={`p-1 rounded-[2px] transition-colors ${
-                            isLoose
-                              ? 'text-ink-muted hover:text-missing cursor-pointer'
-                              : 'text-ink-muted/30 cursor-not-allowed'
-                          }`}
-                          title={
-                            isLoose
-                              ? 'Delete loose note'
-                              : 'Remove note from candidate first to delete'
-                          }
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Note Observation Text (User Serif) */}
-                    <div className="font-serif text-[15px] leading-relaxed text-ink">
-                      {note.text}
-                    </div>
-
-                    {/* Source Citation (Secondary Sans) */}
-                    {note.citation && (
-                      <div className="font-sans text-xs text-ink-muted flex items-center gap-1.5">
-                        <span className="text-rule">Source:</span>
-                        <span>{note.citation}</span>
-                      </div>
-                    )}
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </section>
-
-        {/* ═══════════════════════════════════════════════════════════════
-            RIGHT COLUMN: CANDIDATE QUESTIONS (Formed Material)
-            ═══════════════════════════════════════════════════════════════ */}
-        <section
-          id="candidate-questions-column"
-          aria-label="Candidate Questions"
-          className="h-full flex flex-col min-h-0 bg-paper/20 overflow-hidden"
-        >
-          {/* Right Column Header */}
-          <div className="shrink-0 px-5 py-3 border-b border-rule bg-paper/90 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-[11px] font-bold uppercase tracking-[0.08em] text-ink">
-                CANDIDATE QUESTIONS
-              </span>
-              <span className="text-rule font-mono text-[10px]">·</span>
-              <span className="font-mono text-[12px] font-bold text-ink">
-                {candidateCount}
-              </span>
-            </div>
-
-            <button
-              id="btn-add-candidate-column-header"
-              onClick={handleOpenCreateCandidate}
-              className="inline-flex items-center gap-1 text-[11px] font-sans font-medium text-ink-muted hover:text-ink px-2 py-0.5 rounded-[2px] border border-rule hover:bg-surface transition-colors cursor-pointer"
-            >
-              <Plus className="w-3 h-3" />
-              <span>New candidate</span>
-            </button>
-          </div>
-
-          {/* Right Column Scrollable List */}
-          <div
-            id="candidate-questions-list"
-            className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col gap-4"
-          >
-            {/* ─── Model Clustering Proposals (Reviewable) ─────────────── */}
-            {!onlyMine && proposals.length > 0 && (
-              <div className="flex flex-col gap-3">
-                {proposals.map((prop) => (
-                  <div
-                    key={prop.id}
-                    id={`clustering-proposal-${prop.id}`}
-                    className="relative pl-4 pr-3 py-3 bg-surface border border-rule rounded-[2px] font-mono text-[13px] text-ink leading-relaxed hatched-left-border flex flex-col gap-2.5"
-                  >
-                    {/* Proposal Header */}
-                    <div className="flex items-center justify-between border-b border-rule/60 pb-1.5">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[10px] uppercase tracking-[0.08em] text-ink font-bold">
-                          PROPOSED GROUPING
-                        </span>
-                        <span className="text-rule">·</span>
-                        <span className="text-[11px] font-mono text-ink-muted">
-                          {prop.problemIds.length} notes
-                        </span>
-                      </div>
-                      <span className="text-[10px] font-mono text-ink-muted/80">
-                        [{prop.modelId || 'cx/gpt-5.6-sol'}]
-                      </span>
-                    </div>
-
-                    {/* Shared observation explanation */}
-                    {prop.sharedObservation && (
-                      <p className="font-sans text-[13px] text-ink italic">
-                        {prop.sharedObservation}
-                      </p>
-                    )}
-
-                    {/* Notes contained in proposal */}
-                    <ul className="flex flex-col gap-1 my-1 pl-2 border-l border-rule/60">
-                      {prop.problemSnippets.map((snip, idx) => (
-                        <li
-                          key={idx}
-                          className="font-serif text-[13px] text-ink-muted leading-snug"
-                        >
-                          · {snip}
-                        </li>
-                      ))}
-                    </ul>
-
-                    {/* Working phrase explanation */}
-                    <div className="p-2 bg-paper/60 border border-rule/50 rounded-[2px] text-[12px] font-sans text-ink">
-                      <span className="font-mono text-[10px] uppercase text-ink-muted block mb-0.5">
-                        Model Working Phrase:
-                      </span>
-                      <p className="font-serif italic text-ink">{prop.workingPhrase || prop.groupName}</p>
-                      <span className="font-mono text-[10px] text-ink-muted block mt-1">
-                        You will need to write the candidate's wording yourself.
-                      </span>
-                    </div>
-
-                    {/* Action buttons */}
-                    <div className="flex items-center justify-end gap-2 pt-1">
-                      <button
-                        onClick={() => handleRejectProposal(prop.id)}
-                        className="px-2.5 py-1 text-[11px] font-sans text-ink-muted hover:text-ink bg-transparent border border-transparent hover:border-rule rounded-[2px] transition-colors cursor-pointer"
-                      >
-                        Reject
-                      </button>
-                      <button
-                        onClick={() => handleAcceptProposal(prop)}
-                        className="px-3 py-1 text-[11px] font-sans font-medium text-paper bg-ink rounded-[2px] hover:bg-ink/90 transition-colors cursor-pointer"
-                      >
-                        Accept grouping
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* ─── Candidate Questions List ──────────────────────────── */}
-            {candidateQuestions.length === 0 && proposals.length === 0 ? (
-              /* Empty candidate state */
-              <div
-                id="empty-candidates-state"
-                className="my-auto p-6 bg-surface/40 border border-dashed border-rule rounded-[2px] text-center flex flex-col items-center gap-3"
-              >
-                <span className="font-mono text-[11px] font-bold uppercase tracking-[0.1em] text-ink-muted">
-                  NO CANDIDATES YET
-                </span>
-                <p className="font-sans text-[13px] text-ink-muted max-w-md">
-                  Group notes that observe the same gap. Drag one onto another,
-                  or ask the examiner to propose groupings from what you have written.
-                </p>
-                <button
-                  onClick={handleOpenCreateCandidate}
-                  className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-sans font-medium text-ink bg-surface border border-rule rounded-[2px] hover:border-ink-muted transition-colors cursor-pointer"
+          {!onlyMine &&
+            visibleProposals.map((proposal, index) => {
+              const notes = proposal.problemIds
+                .map((id) => openProblems.find((note) => note.id === id))
+                .filter((note): note is OpenProblemNote => Boolean(note));
+              return (
+                <div
+                  key={proposal.id}
+                  className="absolute"
+                  style={{ left: 654, top: 104 + index * 250 }}
                 >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Create candidate question</span>
+                  <ProposalIsland
+                    proposal={proposal}
+                    notes={notes}
+                    focused={reviewingProposalId === proposal.id}
+                    onReview={() => setReviewingProposalId(proposal.id)}
+                    onReject={() => {
+                      setProposals((current) => current.filter((item) => item.id !== proposal.id));
+                      if (reviewingProposalId === proposal.id) setReviewingProposalId(null);
+                    }}
+                  />
+                </div>
+              );
+            })}
+
+          <div className="survey-field-actions absolute right-9 top-[30px] flex items-center gap-2">
+            {!onlyMine && (
+              <Tooltip content="Ask the assistant to propose clusters" placement="left">
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    triggerProposal();
+                  }}
+                  disabled={looseNotes.length === 0}
+                  className="grid h-8 w-8 place-items-center rounded-full border border-[#303844] bg-[#10151B] text-[#77818D] shadow-lg hover:border-[#55516C] hover:bg-[#171B26] hover:text-[#A9A1E1] disabled:opacity-30"
+                  aria-label="Propose clusters"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
                 </button>
-              </div>
-            ) : (
-              candidateQuestions.map((candidate) => {
-                const linkedNotes = candidate.openProblemIds
-                  .map((pid) => openProblems.find((p) => p.id === pid))
-                  .filter((p): p is OpenProblemNote => !!p);
-
-                const isDragTarget = dragOverCandidateId === candidate.id;
-
-                return (
-                  <div
-                    key={candidate.id}
-                    id={`candidate-question-card-${candidate.id}`}
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      setDragOverCandidateId(candidate.id);
-                    }}
-                    onDragLeave={() => {
-                      if (dragOverCandidateId === candidate.id) {
-                        setDragOverCandidateId(null);
-                      }
-                    }}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      setDragOverCandidateId(null);
-                      const problemId = draggedProblemId || e.dataTransfer.getData('text/plain');
-                      if (problemId) {
-                        onLinkProblemToCandidate(candidate.id, problemId);
-                      }
-                    }}
-                    className={`relative p-4 rounded-[2px] bg-surface border transition-all flex flex-col gap-3 ${
-                      isDragTarget
-                        ? 'border-ink shadow-md bg-paper'
-                        : 'border-rule hover:border-ink-muted/80 shadow-[0_1px_2px_rgba(0,0,0,0.03)]'
-                    }`}
-                  >
-                    {/* Card Header: Label, note count, actions */}
-                    <div className="flex items-center justify-between border-b border-rule/60 pb-2">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-[10px] font-bold uppercase tracking-[0.1em] text-ink-muted">
-                          CANDIDATE
-                        </span>
-                        <span className="text-rule font-mono text-[10px]">·</span>
-                        <span className="font-mono text-[11px] text-ink font-medium">
-                          {linkedNotes.length} {linkedNotes.length === 1 ? 'note' : 'notes'}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          onClick={() => {
-                            setEditingCandidate(candidate);
-                            setEditCandidateText(candidate.text);
-                          }}
-                          className="text-ink-muted hover:text-ink p-1 rounded-[2px] cursor-pointer"
-                          title="Edit candidate wording"
-                        >
-                          <Pencil className="w-3 h-3" />
-                        </button>
-                        <button
-                          onClick={() => onRemoveCandidateQuestion(candidate.id)}
-                          className="text-ink-muted hover:text-missing p-1 rounded-[2px] cursor-pointer"
-                          title="Delete candidate (releases notes back to loose)"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Candidate Question Wording (User Serif) */}
-                    <div className="font-serif text-[16px] font-medium leading-snug text-ink">
-                      {candidate.text}
-                    </div>
-
-                    {/* Linked Notes Compact Listing */}
-                    <div className="flex flex-col gap-1.5 pt-1">
-                      <span className="font-mono text-[10px] uppercase text-ink-muted tracking-wider">
-                        Contained observations:
-                      </span>
-                      {linkedNotes.length === 0 ? (
-                        <div className="p-2.5 bg-paper/50 border border-dashed border-rule rounded-[2px] text-[11px] font-sans text-ink-muted italic">
-                          Drop loose notes here to attach them to this candidate question.
-                        </div>
-                      ) : (
-                        <ul className="flex flex-col gap-1.5">
-                          {linkedNotes.map((ln) => (
-                            <li
-                              key={ln.id}
-                              className="group flex items-start justify-between gap-2 p-1.5 bg-paper/60 border border-rule/40 rounded-[2px] text-xs"
-                            >
-                              <div className="flex flex-col">
-                                <span className="font-serif text-[13px] text-ink leading-snug">
-                                  {ln.text}
-                                </span>
-                                {ln.citation && (
-                                  <span className="font-sans text-[10px] text-ink-muted mt-0.5">
-                                    — {ln.citation}
-                                  </span>
-                                )}
-                              </div>
-
-                              <button
-                                onClick={() =>
-                                  onUnlinkProblemFromCandidate(candidate.id, ln.id)
-                                }
-                                className="text-ink-muted hover:text-missing opacity-50 group-hover:opacity-100 p-0.5 rounded-[2px] transition-opacity cursor-pointer shrink-0"
-                                title="Remove note from candidate (returns to loose)"
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-
-                    {/* Promotion Action Footer */}
-                    <div className="flex items-center justify-end pt-2 border-t border-rule/40">
-                      <button
-                        id={`btn-test-promotion-${candidate.id}`}
-                        onClick={() => handleOpenPromoteModal(candidate)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-sans font-medium text-ink bg-surface border border-rule rounded-[2px] hover:border-ink-muted hover:bg-paper active:bg-paper transition-colors cursor-pointer"
-                      >
-                        <span>Test for promotion</span>
-                        <ArrowRight className="w-3 h-3 text-ink-muted" />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })
+              </Tooltip>
             )}
+            <Tooltip content="Create a candidate question" placement="left">
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  openCandidateComposer();
+                }}
+                className="grid h-8 w-8 place-items-center rounded-full border border-[#3B3B50] bg-[#171625] text-[#8882A7] shadow-lg hover:border-[#686184] hover:bg-[#232139] hover:text-[#D7D2EC]"
+                aria-label="Create candidate question"
+              >
+                <Layers3 className="h-3.5 w-3.5" />
+              </button>
+            </Tooltip>
           </div>
-        </section>
+
+          {isHardStopActive && (
+            <div
+              className="absolute left-[356px] top-[72px] z-30 flex -translate-x-1/2 items-center gap-3 rounded-xl border border-[#554F70] bg-[#171622]/95 px-3 py-2 shadow-[0_16px_44px_rgba(0,0,0,0.34)]"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <span className="grid h-7 w-7 place-items-center rounded-full border border-[#645D86] bg-[#292541] text-[#A59CE7]">
+                <CircleDot className="h-3.5 w-3.5" />
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  if (visibleProposals[0]) setReviewingProposalId(visibleProposals[0].id);
+                  else openCandidateComposer();
+                }}
+                className="text-[11px] font-medium text-[#D7D3E8] hover:text-white"
+              >
+                Create or review candidate questions
+              </button>
+            </div>
+          )}
+
+          {selectedNote && (
+            <NoteInspector
+              note={selectedNote}
+              membership={problemToCandidateMap.get(selectedNote.id)}
+              candidates={chronologicalCandidates}
+              onClose={() => setSelection(null)}
+              onSave={(text, source) => onUpdateOpenProblem(selectedNote.id, text, source)}
+              onMove={(candidateId) => moveNote(selectedNote.id, candidateId)}
+              onDelete={() => {
+                onRemoveOpenProblem(selectedNote.id);
+                setSelection(null);
+              }}
+            />
+          )}
+
+          {selectedCandidate && (
+            <CandidateInspector
+              candidate={selectedCandidate}
+              notes={notesForCandidate(selectedCandidate.id)}
+              onClose={() => setSelection(null)}
+              onSave={(text) => onUpdateCandidateQuestion(selectedCandidate.id, text)}
+              onRemove={() => {
+                onRemoveCandidateQuestion(selectedCandidate.id);
+                setSelection(null);
+              }}
+              onPromote={() => setPromotingCandidate(selectedCandidate)}
+              onSelectNote={(id) => setSelection({ type: 'note', id })}
+            />
+          )}
+
+          {candidateComposerOpen && (
+            <CandidateComposer
+              title="Form a candidate question"
+              notes={looseNotes}
+              selectedIds={candidateSelectedIds}
+              onToggleNote={(id) =>
+                setCandidateSelectedIds((current) =>
+                  current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
+                )
+              }
+              onCancel={() => setCandidateComposerOpen(false)}
+              onSubmit={(wording) => {
+                onAddCandidateQuestion(wording, candidateSelectedIds);
+                setCandidateComposerOpen(false);
+                setCandidateSelectedIds([]);
+              }}
+            />
+          )}
+
+          {reviewingProposal && (
+            <CandidateComposer
+              title="Review proposed cluster"
+              notes={reviewingProposal.problemIds
+                .map((id) => openProblems.find((note) => note.id === id))
+                .filter((note): note is OpenProblemNote => Boolean(note))}
+              selectedIds={reviewingProposal.problemIds}
+              requireFixedSelection
+              modelId={reviewingProposal.modelId || SURVEY_MODEL_ID}
+              onToggleNote={() => undefined}
+              onCancel={() => setReviewingProposalId(null)}
+              onReject={() => {
+                setProposals((current) =>
+                  current.filter((proposal) => proposal.id !== reviewingProposal.id)
+                );
+                setReviewingProposalId(null);
+              }}
+              onSubmit={(wording) => {
+                onAddCandidateQuestion(wording, reviewingProposal.problemIds);
+                setProposals((current) =>
+                  current.filter((proposal) => proposal.id !== reviewingProposal.id)
+                );
+                setReviewingProposalId(null);
+              }}
+            />
+          )}
+
+          {promotedInfo && (
+            <div
+              className="absolute bottom-5 left-5 z-40 flex items-center gap-3 rounded-xl border border-[#384248] bg-[#11181B]/95 px-3 py-2.5 shadow-xl"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <Check className="h-3.5 w-3.5 text-[#7FB18E]" />
+              <span className="max-w-64 truncate text-[11px] text-[#C9D0D4]">
+                Promoted: {promotedInfo.text}
+              </span>
+              {onNavigateToMap && (
+                <button
+                  type="button"
+                  onClick={() => onNavigateToMap(promotedInfo.id)}
+                  className="text-[11px] font-medium text-[#A9B6C0] hover:text-white"
+                >
+                  View
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setPromotedInfo(null)}
+                className="rounded p-0.5 text-[#67727C] hover:text-white"
+                aria-label="Dismiss promotion notice"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* ═══════════════════════════════════════════════════════════════
-          MODAL 1: EDIT OPEN PROBLEM NOTE
-          ═══════════════════════════════════════════════════════════════ */}
-      {editingNote && (
-        <div
-          className="fixed inset-0 bg-ink/40 backdrop-blur-[1px] flex items-center justify-center p-4 z-50 select-text"
-        >
-          <div className="w-full max-w-lg bg-surface border border-rule shadow-xl rounded-[2px] p-5 flex flex-col gap-4">
-            <div className="flex items-center justify-between border-b border-rule pb-2">
-              <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-ink">
-                EDIT OPEN PROBLEM NOTE
-              </span>
-              <button
-                onClick={() => setEditingNote(null)}
-                className="text-ink-muted hover:text-ink p-1 rounded-[2px]"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="flex flex-col gap-3">
-              <label className="flex flex-col gap-1">
-                <span className="text-[11px] font-mono text-ink-muted uppercase">
-                  Observation *
-                </span>
-                <textarea
-                  rows={3}
-                  value={editNoteText}
-                  onChange={(e) => setEditNoteText(e.target.value)}
-                  className="bg-paper border border-rule p-2.5 font-serif text-[15px] text-ink rounded-[2px] focus:border-ink focus:outline-none"
-                />
-              </label>
-
-              <label className="flex flex-col gap-1">
-                <span className="text-[11px] font-mono text-ink-muted uppercase">
-                  Source *
-                </span>
-                <input
-                  type="text"
-                  value={editNoteSource}
-                  onChange={(e) => setEditNoteSource(e.target.value)}
-                  className="bg-paper border border-rule p-2 text-xs font-sans text-ink rounded-[2px] focus:border-ink focus:outline-none"
-                />
-              </label>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-rule">
-              <button
-                onClick={() => setEditingNote(null)}
-                className="px-3 py-1.5 text-xs font-sans text-ink-muted hover:text-ink"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  if (editNoteText.trim()) {
-                    onUpdateOpenProblem(
-                      editingNote.id,
-                      editNoteText.trim(),
-                      editNoteSource.trim()
-                    );
-                    setEditingNote(null);
-                  }
-                }}
-                disabled={!editNoteText.trim() || !editNoteSource.trim()}
-                className="px-4 py-1.5 text-xs font-sans font-medium text-paper bg-ink rounded-[2px] disabled:opacity-40"
-              >
-                Save changes
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ═══════════════════════════════════════════════════════════════
-          MODAL 2: CREATE CANDIDATE QUESTION
-          ═══════════════════════════════════════════════════════════════ */}
-      {isCreatingCandidate && (
-        <div
-          className="fixed inset-0 bg-ink/40 backdrop-blur-[1px] flex items-center justify-center p-4 z-50 select-text"
-        >
-          <div className="w-full max-w-lg bg-surface border border-rule shadow-xl rounded-[2px] p-5 flex flex-col gap-4">
-            <div className="flex items-center justify-between border-b border-rule pb-2">
-              <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-ink">
-                CREATE CANDIDATE QUESTION
-              </span>
-              <button
-                onClick={() => setIsCreatingCandidate(false)}
-                className="text-ink-muted hover:text-ink p-1 rounded-[2px]"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="flex flex-col gap-3">
-              <label className="flex flex-col gap-1">
-                <span className="text-[11px] font-mono text-ink-muted uppercase">
-                  Candidate Question Wording (Write in your own words) *
-                </span>
-                <textarea
-                  rows={3}
-                  placeholder="e.g. Does sparse coding depend on natural image statistics?"
-                  value={newCandidateWording}
-                  onChange={(e) => setNewCandidateWording(e.target.value)}
-                  className="bg-paper border border-rule p-2.5 font-serif text-[16px] text-ink rounded-[2px] focus:border-ink focus:outline-none"
-                  autoFocus
-                />
-              </label>
-
-              {/* Attach loose notes selector */}
-              {looseNotes.length > 0 && (
-                <div className="flex flex-col gap-1.5 mt-1">
-                  <span className="text-[11px] font-mono text-ink-muted uppercase">
-                    Attach Loose Notes ({newCandidateSelectedNotes.length} selected):
-                  </span>
-                  <div className="max-h-36 overflow-y-auto border border-rule rounded-[2px] p-2 bg-paper flex flex-col gap-1.5">
-                    {looseNotes.map((ln) => {
-                      const isChecked = newCandidateSelectedNotes.includes(ln.id);
-                      return (
-                        <label
-                          key={ln.id}
-                          className="flex items-start gap-2 text-xs font-serif text-ink cursor-pointer hover:bg-surface p-1 rounded-[2px]"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={isChecked}
-                            onChange={() => {
-                              if (isChecked) {
-                                setNewCandidateSelectedNotes(
-                                  newCandidateSelectedNotes.filter((id) => id !== ln.id)
-                                );
-                              } else {
-                                setNewCandidateSelectedNotes([
-                                  ...newCandidateSelectedNotes,
-                                  ln.id,
-                                ]);
-                              }
-                            }}
-                            className="mt-0.5"
-                          />
-                          <span className="leading-snug">{ln.text}</span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-rule">
-              <button
-                onClick={() => setIsCreatingCandidate(false)}
-                className="px-3 py-1.5 text-xs font-sans text-ink-muted hover:text-ink"
-              >
-                Cancel
-              </button>
-              <button
-                id="btn-commit-create-candidate"
-                onClick={handleCommitCreateCandidate}
-                disabled={!newCandidateWording.trim()}
-                className="px-4 py-1.5 text-xs font-sans font-medium text-paper bg-ink rounded-[2px] disabled:opacity-40"
-              >
-                Create candidate
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ═══════════════════════════════════════════════════════════════
-          MODAL 3: EDIT CANDIDATE QUESTION WORDING
-          ═══════════════════════════════════════════════════════════════ */}
-      {editingCandidate && (
-        <div
-          className="fixed inset-0 bg-ink/40 backdrop-blur-[1px] flex items-center justify-center p-4 z-50 select-text"
-        >
-          <div className="w-full max-w-lg bg-surface border border-rule shadow-xl rounded-[2px] p-5 flex flex-col gap-4">
-            <div className="flex items-center justify-between border-b border-rule pb-2">
-              <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-ink">
-                EDIT CANDIDATE WORDING
-              </span>
-              <button
-                onClick={() => setEditingCandidate(null)}
-                className="text-ink-muted hover:text-ink p-1 rounded-[2px]"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <label className="flex flex-col gap-1">
-              <span className="text-[11px] font-mono text-ink-muted uppercase">
-                Candidate Question *
-              </span>
-              <textarea
-                rows={3}
-                value={editCandidateText}
-                onChange={(e) => setEditCandidateText(e.target.value)}
-                className="bg-paper border border-rule p-2.5 font-serif text-[16px] text-ink rounded-[2px] focus:border-ink focus:outline-none"
-              />
-            </label>
-
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-rule">
-              <button
-                onClick={() => setEditingCandidate(null)}
-                className="px-3 py-1.5 text-xs font-sans text-ink-muted hover:text-ink"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  if (editCandidateText.trim()) {
-                    onUpdateCandidateQuestion(
-                      editingCandidate.id,
-                      editCandidateText.trim()
-                    );
-                    setEditingCandidate(null);
-                  }
-                }}
-                disabled={!editCandidateText.trim()}
-                className="px-4 py-1.5 text-xs font-sans font-medium text-paper bg-ink rounded-[2px] disabled:opacity-40"
-              >
-                Save
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ═══════════════════════════════════════════════════════════════
-          MODAL 4: THE PROMOTION TEST PANEL (Strict Human Authoring)
-          ═══════════════════════════════════════════════════════════════ */}
       {promotingCandidate && (
-        <div
-          id="promotion-test-modal"
-          className="fixed inset-0 bg-ink/50 backdrop-blur-[2px] flex items-center justify-center p-4 z-50 select-text overflow-y-auto"
-        >
-          <div className="w-full max-w-2xl bg-surface border border-rule shadow-2xl rounded-[2px] p-6 flex flex-col gap-5 my-8">
-            {/* Header */}
-            <div className="flex flex-col gap-1 pb-3 border-b border-rule">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-[11px] font-bold uppercase tracking-[0.12em] text-ink">
-                    PROMOTE TO QUESTION
-                  </span>
-                  <ExplainerButton explainerKey="promotion_falsification_test" surfaceId="survey" />
-                </div>
-                <button
-                  onClick={() => setPromotingCandidate(null)}
-                  className="text-ink-muted hover:text-ink p-1 rounded-[2px]"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div className="mt-2">
-                <span className="font-mono text-[10px] uppercase text-ink-muted tracking-wider block">
-                  CANDIDATE
-                </span>
-                <div className="font-serif text-[17px] font-medium text-ink mt-0.5 leading-snug">
-                  {promotingCandidate.text}
-                </div>
-                <span className="font-sans text-xs text-ink-muted mt-1 block">
-                  {promotingCandidate.openProblemIds.length}{' '}
-                  {promotingCandidate.openProblemIds.length === 1 ? 'note' : 'notes'} will move with
-                  this question as provenance.
-                </span>
-              </div>
-            </div>
-
-            {/* Section: Write a claim that answers it */}
-            <div className="flex flex-col gap-2">
-              <div className="flex flex-col">
-                <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-ink">
-                  WRITE A CLAIM THAT ANSWERS IT *
-                </span>
-                <span className="font-serif italic text-xs text-ink-muted">
-                  A question you cannot answer yet is not ready to be a question.
-                </span>
-              </div>
-
-              <textarea
-                id="textarea-promote-claim"
-                rows={3}
-                placeholder="Write your preliminary claim hypothesis answering this question..."
-                value={promoteClaimText}
-                onChange={(e) => setPromoteClaimText(e.target.value)}
-                className="w-full bg-paper border border-rule p-3 font-serif text-[15px] leading-relaxed text-ink rounded-[2px] focus:border-ink focus:outline-none"
-                autoFocus
-              />
-            </div>
-
-            {/* Checkbox 1: Falsifiability Test */}
-            <div className="p-3.5 bg-paper/60 border border-rule rounded-[2px] flex flex-col gap-2.5">
-              <label className="flex items-start gap-3 cursor-pointer select-none">
-                <input
-                  id="checkbox-promote-falsifiable"
-                  type="checkbox"
-                  checked={boxFalsifiable}
-                  onChange={(e) => setBoxFalsifiable(e.target.checked)}
-                  className="mt-1 w-4 h-4"
-                />
-                <div className="flex flex-col">
-                  <span className="font-sans text-sm font-semibold text-ink">
-                    This claim could be false.
-                  </span>
-                  <span className="font-sans text-xs text-ink-muted">
-                    Name what would show it false. If nothing could, it is not a claim.
-                  </span>
-                </div>
-              </label>
-
-              {boxFalsifiable && (
-                <div className="pl-7 pt-1">
-                  <input
-                    id="input-falsification-condition"
-                    type="text"
-                    placeholder="State what observation or measurement would falsify this claim... *"
-                    value={falsificationCondition}
-                    onChange={(e) => setFalsificationCondition(e.target.value)}
-                    className="w-full bg-surface border border-rule px-3 py-1.5 text-xs font-sans text-ink rounded-[2px] focus:border-ink focus:outline-none"
-                  />
-                </div>
-              )}
-            </div>
-
-            {/* Checkbox 2: Scope Settled in a Year */}
-            <div className="p-3.5 bg-paper/60 border border-rule rounded-[2px]">
-              <label className="flex items-start gap-3 cursor-pointer select-none">
-                <input
-                  id="checkbox-promote-settled"
-                  type="checkbox"
-                  checked={boxSettledInYear}
-                  onChange={(e) => setBoxSettledInYear(e.target.checked)}
-                  className="mt-1 w-4 h-4"
-                />
-                <div className="flex flex-col">
-                  <span className="font-sans text-sm font-semibold text-ink">
-                    This could be settled within a year.
-                  </span>
-                  <span className="font-sans text-xs text-ink-muted">
-                    With the methods and access you actually have.
-                  </span>
-                </div>
-              </label>
-            </div>
-
-            {/* Tags Section */}
-            <div className="flex flex-col gap-1.5 pt-1">
-              <span className="font-mono text-[10px] uppercase text-ink-muted tracking-wider">
-                TAGS (inherits active filter):
-              </span>
-              <div className="flex flex-wrap items-center gap-1.5">
-                {promoteTags.map((t) => (
-                  <span
-                    key={t}
-                    className="inline-flex items-center gap-1 px-2 py-0.5 bg-surface border border-rule rounded-[2px] font-mono text-[11px] text-ink"
-                  >
-                    <span>{t}</span>
-                    <button
-                      onClick={() => handleRemoveTag(t)}
-                      className="text-ink-muted hover:text-ink cursor-pointer"
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
-
-                <div className="inline-flex items-center gap-1">
-                  <input
-                    type="text"
-                    placeholder="+ add tag"
-                    value={newTagInput}
-                    onChange={(e) => setNewTagInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleAddTag();
-                      }
-                    }}
-                    className="w-24 bg-paper border border-rule px-1.5 py-0.5 text-[11px] font-mono rounded-[2px] focus:border-ink focus:outline-none"
-                  />
-                  {newTagInput && (
-                    <button
-                      onClick={handleAddTag}
-                      className="text-[11px] font-mono px-1 bg-surface border border-rule rounded-[2px]"
-                    >
-                      add
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Permanent Notice & Action Buttons */}
-            <div className="flex items-center justify-between pt-3 border-t border-rule">
-              <span className="font-mono text-[11px] text-ink-muted/80">
-                Promotion is permanent. There is no demote.
-              </span>
-
-              <div className="flex items-center gap-2.5">
-                <button
-                  onClick={() => setPromotingCandidate(null)}
-                  className="px-3 py-1.5 text-xs font-sans text-ink-muted hover:text-ink cursor-pointer"
-                >
-                  Cancel
-                </button>
-
-                <button
-                  id="btn-confirm-promote"
-                  onClick={handleCommitPromotion}
-                  disabled={!isPromoteValid}
-                  title={!isPromoteValid ? `Cannot promote: ${getMissingPromotionReason()}` : undefined}
-                  className={`px-4 py-1.5 text-xs font-sans font-medium rounded-[2px] transition-colors ${
-                    isPromoteValid
-                      ? 'bg-ink text-paper hover:bg-ink/90 cursor-pointer shadow-sm'
-                      : 'bg-rule/60 text-ink-muted/60 cursor-not-allowed'
-                  }`}
-                >
-                  {isPromoteValid ? 'Promote' : `Promote (${getMissingPromotionReason()})`}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <PromotionDialog
+          candidate={promotingCandidate}
+          activeProjectTag={activeProjectTag}
+          onCancel={() => setPromotingCandidate(null)}
+          onPromote={(claim, tags, falsificationCondition) => {
+            const questionId = onPromoteCandidate(
+              promotingCandidate,
+              claim,
+              tags,
+              falsificationCondition
+            );
+            setPromotedInfo({
+              id: typeof questionId === 'string' ? questionId : `q-${Date.now()}`,
+              text: promotingCandidate.text,
+            });
+            setPromotingCandidate(null);
+            setSelection(null);
+          }}
+        />
       )}
     </div>
   );

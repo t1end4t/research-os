@@ -1537,12 +1537,14 @@ export default function App() {
         }}
       />
 
-      {/* Standing Bar: Signature element with holds/weak/unsupported/unwritten/open counts */}
-      <StandingBar
-        counts={standingCounts}
-        activeSegment={standingFilter}
-        onSelectSegment={handleStandingFilterChange}
-      />
+      {/* Standing describes argument health, so it stays out of the pre-question Survey view. */}
+      {activeTab !== 'survey' && (
+        <StandingBar
+          counts={standingCounts}
+          activeSegment={standingFilter}
+          onSelectSegment={handleStandingFilterChange}
+        />
+      )}
 
       {/* Main Container: Left Rail + Active Screen + Examiner Dock */}
       <div
@@ -1757,4 +1759,3 @@ export default function App() {
     </div>
   );
 }
-
