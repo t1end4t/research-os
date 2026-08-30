@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { LeftRailMark, LinkStatus, QuestionNode } from '../../types';
 import { StatusDot, SectionLabel } from '../ui/instrument';
-import { ExternalLink, Bookmark, Sparkles } from 'lucide-react';
+import { ExternalLink, Bookmark } from 'lucide-react';
 
 interface LinkedPassageRailProps {
   marks: LeftRailMark[];

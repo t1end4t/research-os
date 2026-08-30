@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { SectionLabel } from '../ui/instrument';
 import { DraftGapItem } from '../../utils/draftHelpers';
 import { FileEdit, Check, Edit2 } from 'lucide-react';
+import { Tooltip, ExplainerButton, GUIDANCE_COPY } from '../../guidance';
 
 export interface DraftHeaderProps {
   manuscriptTitle: string;
@@ -47,6 +48,8 @@ export function DraftHeader({
             <span>Draft</span>
           </div>
 
+          <ExplainerButton explainerKey="draft_not_export" surfaceId="draft" />
+
           <div className="h-3 w-[1px] bg-rule shrink-0" />
 
           {/* Editable Manuscript Title */}
@@ -78,20 +81,21 @@ export function DraftHeader({
               </button>
             </div>
           ) : (
-            <button
-              id="draft-edit-title-btn"
-              onClick={() => {
-                setTempTitle(manuscriptTitle);
-                setIsEditingTitle(true);
-              }}
-              title="Click to edit manuscript title"
-              className="group inline-flex items-center gap-2 text-left hover:bg-paper px-2 py-0.5 -ml-2 rounded-[2px] transition-colors cursor-pointer min-w-0"
-            >
-              <h1 className="font-serif text-[17px] font-semibold text-ink tracking-tight truncate">
-                {manuscriptTitle || 'Untitled Manuscript'}
-              </h1>
-              <Edit2 className="w-3 h-3 text-ink-muted/60 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
-            </button>
+            <Tooltip content="Click to edit manuscript title">
+              <button
+                id="draft-edit-title-btn"
+                onClick={() => {
+                  setTempTitle(manuscriptTitle);
+                  setIsEditingTitle(true);
+                }}
+                className="group inline-flex items-center gap-2 text-left hover:bg-paper px-2 py-0.5 -ml-2 rounded-[2px] transition-colors cursor-pointer min-w-0"
+              >
+                <h1 className="font-serif text-[17px] font-semibold text-ink tracking-tight truncate">
+                  {manuscriptTitle || 'Untitled Manuscript'}
+                </h1>
+                <Edit2 className="w-3 h-3 text-ink-muted/60 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+              </button>
+            </Tooltip>
           )}
         </div>
 
@@ -109,56 +113,60 @@ export function DraftHeader({
           </span>
 
           {/* 1. Tentative claims */}
-          <button
-            id="draft-standing-tentative-btn"
-            onClick={() => onSelectStandingFilter?.('tentative')}
-            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-[2px] hover:bg-paper transition-colors cursor-pointer ${
-              standingCounts.tentativeClaims > 0 ? 'text-weak font-medium' : 'text-ink-muted'
-            }`}
-            title="Tentative claims (weak or missing link status)"
-          >
-            <span>{standingCounts.tentativeClaims} tentative claim{standingCounts.tentativeClaims === 1 ? '' : 's'}</span>
-          </button>
+          <Tooltip content="Filter by tentative claims with weak or missing link status">
+            <button
+              id="draft-standing-tentative-btn"
+              onClick={() => onSelectStandingFilter?.('tentative')}
+              className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-[2px] hover:bg-paper transition-colors cursor-pointer ${
+                standingCounts.tentativeClaims > 0 ? 'text-weak font-medium' : 'text-ink-muted'
+              }`}
+            >
+              <span>{standingCounts.tentativeClaims} tentative claim{standingCounts.tentativeClaims === 1 ? '' : 's'}</span>
+            </button>
+          </Tooltip>
 
           <span className="text-rule">·</span>
 
           {/* 2. Contradiction not placed */}
-          <button
-            id="draft-standing-contrary-btn"
-            onClick={() => onSelectStandingFilter?.('contrary')}
-            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-[2px] hover:bg-paper transition-colors cursor-pointer ${
-              standingCounts.unplacedContradictions > 0 ? 'text-missing font-medium' : 'text-ink-muted'
-            }`}
-            title="Contradicting finding not placed in draft"
-          >
-            <span>{standingCounts.unplacedContradictions} contradiction not placed</span>
-          </button>
+          <Tooltip content="Inspect unplaced findings that cut against current claims">
+            <button
+              id="draft-standing-contrary-btn"
+              onClick={() => onSelectStandingFilter?.('contrary')}
+              className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-[2px] hover:bg-paper transition-colors cursor-pointer ${
+                standingCounts.unplacedContradictions > 0 ? 'text-missing font-medium' : 'text-ink-muted'
+              }`}
+            >
+              <span>{standingCounts.unplacedContradictions} contradiction not placed</span>
+            </button>
+          </Tooltip>
 
           <span className="text-rule">·</span>
 
           {/* 3. Reasons unwritten */}
-          <button
-            id="draft-standing-unwritten-btn"
-            onClick={() => onSelectStandingFilter?.('unwritten')}
-            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-[2px] hover:bg-paper transition-colors cursor-pointer ${
-              standingCounts.unwrittenReasons > 0 ? 'text-missing font-medium' : 'text-ink-muted'
-            }`}
-            title="Unwritten user reasons across claims and findings"
-          >
-            <span>{standingCounts.unwrittenReasons} reason{standingCounts.unwrittenReasons === 1 ? '' : 's'} unwritten</span>
-          </button>
+          <Tooltip content="Inspect unwritten user reasons across claims and findings">
+            <button
+              id="draft-standing-unwritten-btn"
+              onClick={() => onSelectStandingFilter?.('unwritten')}
+              className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-[2px] hover:bg-paper transition-colors cursor-pointer ${
+                standingCounts.unwrittenReasons > 0 ? 'text-missing font-medium' : 'text-ink-muted'
+              }`}
+            >
+              <span>{standingCounts.unwrittenReasons} reason{standingCounts.unwrittenReasons === 1 ? '' : 's'} unwritten</span>
+            </button>
+          </Tooltip>
 
           {standingCounts.openGapsCount > 0 && (
             <>
               <span className="text-rule">·</span>
-              <button
-                id="draft-standing-gaps-btn"
-                onClick={() => onSelectStandingFilter?.('gaps')}
-                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-[2px] hover:bg-paper text-ink transition-colors cursor-pointer font-medium"
-                title="View all assembly gaps"
-              >
-                <span>{standingCounts.openGapsCount} open gap{standingCounts.openGapsCount === 1 ? '' : 's'}</span>
-              </button>
+              <Tooltip content="View all active manuscript assembly gaps">
+                <button
+                  id="draft-standing-gaps-btn"
+                  onClick={() => onSelectStandingFilter?.('gaps')}
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-[2px] hover:bg-paper text-ink transition-colors cursor-pointer font-medium"
+                >
+                  <span>{standingCounts.openGapsCount} open gap{standingCounts.openGapsCount === 1 ? '' : 's'}</span>
+                </button>
+              </Tooltip>
             </>
           )}
         </div>

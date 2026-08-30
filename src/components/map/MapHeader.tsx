@@ -2,6 +2,7 @@ import React from 'react';
 import { FilterStatus } from '../../types';
 import { StandingSegment } from '../shell/StandingBar';
 import { SectionLabel } from '../ui/instrument';
+import { Tooltip, ExplainerButton, Term, GUIDANCE_COPY } from '../../guidance';
 
 interface MapHeaderProps {
   filter: FilterStatus;
@@ -43,9 +44,7 @@ export function MapHeader({
             <h1 className="text-[13px] font-mono font-semibold uppercase tracking-[0.08em] text-ink">
               ARGUMENT MAP
             </h1>
-            <span className="text-[11px] font-sans text-ink-muted">
-              Where is the reasoning broken?
-            </span>
+            <ExplainerButton explainerKey="map_overview" surfaceId="map" />
           </div>
         </div>
 
@@ -89,46 +88,52 @@ export function MapHeader({
             aria-label="Map filters"
             className="inline-flex items-center p-0.5 rounded-[2px] bg-paper border border-rule gap-0.5"
           >
-            <button
-              id="filter-btn-all"
-              type="button"
-              onClick={() => onFilterChange('all')}
-              className={`px-2.5 py-1 text-[11px] font-sans rounded-[2px] transition-colors cursor-pointer ${
-                filter === 'all' && !isSpecialStandingFilter
-                  ? 'bg-surface text-ink font-medium shadow-xs border border-rule/60'
-                  : 'text-ink-muted hover:text-ink'
-              }`}
-            >
-              All
-            </button>
+            <Tooltip content="Show all nodes and links in the argument tree">
+              <button
+                id="filter-btn-all"
+                type="button"
+                onClick={() => onFilterChange('all')}
+                className={`px-2.5 py-1 text-[11px] font-sans rounded-[2px] transition-colors cursor-pointer ${
+                  filter === 'all' && !isSpecialStandingFilter
+                    ? 'bg-surface text-ink font-medium shadow-xs border border-rule/60'
+                    : 'text-ink-muted hover:text-ink'
+                }`}
+              >
+                All
+              </button>
+            </Tooltip>
 
-            <button
-              id="filter-btn-weak"
-              type="button"
-              onClick={() => onFilterChange('weak')}
-              className={`px-2.5 py-1 text-[11px] font-sans rounded-[2px] transition-colors cursor-pointer flex items-center gap-1.5 ${
-                filter === 'weak' && !isSpecialStandingFilter
-                  ? 'bg-surface text-weak font-medium shadow-xs border border-rule/60'
-                  : 'text-ink-muted hover:text-weak'
-              }`}
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-weak" />
-              <span>Weak only</span>
-            </button>
+            <Tooltip content="Show only weak links with partial or unverified check axes">
+              <button
+                id="filter-btn-weak"
+                type="button"
+                onClick={() => onFilterChange('weak')}
+                className={`px-2.5 py-1 text-[11px] font-sans rounded-[2px] transition-colors cursor-pointer flex items-center gap-1.5 ${
+                  filter === 'weak' && !isSpecialStandingFilter
+                    ? 'bg-surface text-weak font-medium shadow-xs border border-rule/60'
+                    : 'text-ink-muted hover:text-weak'
+                }`}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-weak" />
+                <span>Weak only</span>
+              </button>
+            </Tooltip>
 
-            <button
-              id="filter-btn-missing"
-              type="button"
-              onClick={() => onFilterChange('missing')}
-              className={`px-2.5 py-1 text-[11px] font-sans rounded-[2px] transition-colors cursor-pointer flex items-center gap-1.5 ${
-                filter === 'missing' && !isSpecialStandingFilter
-                  ? 'bg-surface text-missing font-medium shadow-xs border border-rule/60'
-                  : 'text-ink-muted hover:text-missing'
-              }`}
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-missing" />
-              <span>Missing only</span>
-            </button>
+            <Tooltip content="Show only missing links, unwritten reasons, and unsupported claims">
+              <button
+                id="filter-btn-missing"
+                type="button"
+                onClick={() => onFilterChange('missing')}
+                className={`px-2.5 py-1 text-[11px] font-sans rounded-[2px] transition-colors cursor-pointer flex items-center gap-1.5 ${
+                  filter === 'missing' && !isSpecialStandingFilter
+                    ? 'bg-surface text-missing font-medium shadow-xs border border-rule/60'
+                    : 'text-ink-muted hover:text-missing'
+                }`}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-missing" />
+                <span>Missing only</span>
+              </button>
+            </Tooltip>
           </div>
 
           {/* Active Standing Bar Filter notification */}
@@ -148,19 +153,19 @@ export function MapHeader({
           )}
         </div>
 
-        {/* Legend */}
+        {/* Legend with domain terms */}
         <div className="flex items-center gap-4 text-[11px] font-mono text-ink-muted">
           <div className="flex items-center gap-1.5">
             <span className="w-3 h-[2px] bg-holds" />
-            <span>holds</span>
+            <Term name="holds">holds</Term>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="w-3 h-[2px] border-b-2 border-dashed border-weak" />
-            <span>weak</span>
+            <Term name="weak">weak</Term>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="w-3 h-[2px] border-b-2 border-dotted border-missing" />
-            <span>missing</span>
+            <Term name="missing">missing</Term>
           </div>
         </div>
       </div>

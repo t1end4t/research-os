@@ -32,7 +32,8 @@ import {
   StandingSegment,
 } from './components/shell/StandingBar';
 import { LeftRail } from './components/shell/LeftRail';
-import { ExaminerDockPlaceholder } from './components/shell/ExaminerDockPlaceholder';
+import { ExaminerDock } from './components/examiner/ExaminerDock';
+import { getExaminerContext } from './utils/examinerContext';
 import {
   createClaim,
   createEvidence,
@@ -549,6 +550,32 @@ export default function App() {
   };
 
   const currentContext = getCurrentContext();
+
+  const examinerContext = useMemo(() => {
+    return getExaminerContext({
+      activeTab,
+      selectedNodeId,
+      selectedClaimId,
+      questionsData,
+      papersCatalog,
+      activePaperId,
+      assistantQuotedSnippet,
+      openProblems,
+      candidateQuestions,
+      manuscript,
+    });
+  }, [
+    activeTab,
+    selectedNodeId,
+    selectedClaimId,
+    questionsData,
+    papersCatalog,
+    activePaperId,
+    assistantQuotedSnippet,
+    openProblems,
+    candidateQuestions,
+    manuscript,
+  ]);
 
   // Ensure thread exists for current context and sync active thread when context changes
   useEffect(() => {
@@ -1303,16 +1330,21 @@ export default function App() {
   };
 
   // Assistant Dock Message Dispatcher
-  const handleAssistantSendMessage = async (text: string, quotedSnippet?: string | null) => {
+  const handleAssistantSendMessage = async (
+    text: string,
+    contextOrSnippet?: any
+  ): Promise<{ text: string; modelId?: string } | void> => {
     const trimmed = text.trim();
     if (!trimmed || isAssistantResponding) return;
 
     const threadId = activeThreadId;
     const context = currentContext;
+    const isSnippetString = typeof contextOrSnippet === 'string';
+    const snippet = isSnippetString ? contextOrSnippet : assistantQuotedSnippet;
     const userMsg: ChatMessage = {
       id: `user-${Date.now()}`,
       sender: 'user',
-      text: quotedSnippet ? `"${quotedSnippet}"\n\n${trimmed}` : trimmed,
+      text: snippet ? `"${snippet}"\n\n${trimmed}` : trimmed,
       timestamp: getFormattedTime(),
     };
 
@@ -1355,7 +1387,7 @@ export default function App() {
           threadId,
           context,
           message: trimmed,
-          quotedSnippet: quotedSnippet || undefined,
+          quotedSnippet: snippet || undefined,
           contextData,
         }),
       });
@@ -1393,6 +1425,8 @@ export default function App() {
         },
       };
     });
+
+    return { text: responseMsg.text, modelId: responseMsg.modelId };
   };
 
   // Undo edit action
@@ -1684,36 +1718,40 @@ export default function App() {
           )}
         </main>
 
-        {/* Resizable Examiner Dock (Placeholder) */}
+        {/* Resizable Examiner Dock */}
         {isAssistantOpen && !isTooNarrowForAssistant && (
-          <aside
-            id="examiner-dock-container"
-            aria-label="Examiner Dock"
-            style={{ width: `${dockWidth}px` }}
-            className="relative h-full border-l border-rule shrink-0 overflow-visible bg-surface"
-          >
-            {/* Drag Handle */}
-            <div
-              id="examiner-dock-drag-handle"
-              onMouseDown={handleMouseDownDrag}
-              onDoubleClick={handleDoubleClickResetDock}
-              title="Drag to resize dock, double-click to reset (380px)"
-              className="absolute top-0 bottom-0 -left-[5px] w-[10px] z-50 cursor-col-resize select-none group flex items-center justify-center"
-            >
-              <div
-                className={`w-[1px] h-full transition-colors ${
-                  isDraggingDock ? 'bg-ink' : 'bg-transparent group-hover:bg-ink-muted'
-                }`}
-              />
-            </div>
-
-            <ExaminerDockPlaceholder
-              context={currentContext}
-              onClearContext={handleClearContext}
-              onCloseDock={() => setIsAssistantOpen(false)}
-              onClickContextChip={handleClickContextChip}
-            />
-          </aside>
+          <ExaminerDock
+            isOpen={true}
+            context={examinerContext}
+            activeSurface={activeTab}
+            onlyMine={onlyMine}
+            onCloseDock={() => setIsAssistantOpen(false)}
+            onClearContext={handleClearContext}
+            onClickContextChip={handleClickContextChip}
+            onFocusReasonField={() => {
+              setIsWorkbenchOpen(true);
+              const reasonInput = document.getElementById('workbench-claim-reason-textarea') || document.querySelector('textarea');
+              reasonInput?.focus();
+            }}
+            onWeakenClaim={(claimId) => {
+              if (claimId) {
+                handleSelectClaim(claimId);
+              }
+              setIsWorkbenchOpen(true);
+            }}
+            onAddExperiment={(claimId) => {
+              if (claimId) {
+                handleSelectClaim(claimId);
+              }
+              setIsWorkbenchOpen(true);
+            }}
+            onUndoEdit={(payload) => {
+              if (payload?.type === 'remove_evidence' && payload.claimId && payload.evidenceId) {
+                handleRemoveEvidenceFromClaim(payload.claimId, payload.evidenceId);
+              }
+            }}
+            onSendMessage={handleAssistantSendMessage}
+          />
         )}
       </div>
     </div>

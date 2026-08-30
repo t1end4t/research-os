@@ -1,6 +1,7 @@
 import React from 'react';
 import { MapGhostNode } from './mapLayout';
 import { SectionLabel, StatusBar } from '../ui/instrument';
+import { Term } from '../../guidance';
 
 interface MapGhostCardProps {
   key?: React.Key;
@@ -51,7 +52,7 @@ export function MapGhostCard({
       {/* Header */}
       <div className="flex items-center justify-between leading-none">
         <SectionLabel mono className="text-[10px] text-missing font-medium">
-          {node.title}
+          <Term name="ghost">{node.title}</Term>
         </SectionLabel>
         <span className="text-[9px] font-mono text-missing/80 uppercase">
           structural void

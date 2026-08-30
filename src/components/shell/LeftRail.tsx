@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { AppTab } from '../../types';
 
-export type PipelineStage = 'survey' | 'map' | 'read' | 'bench' | 'draft';
+export type PipelineStage = 'survey' | 'map' | 'papers' | 'experiments' | 'draft';
 
 export interface LeftRailProps {
   activeTab: AppTab;
@@ -23,9 +23,9 @@ export function LeftRail({ activeTab, onSelectTab }: LeftRailProps) {
       : activeTab === 'graph' || activeTab === 'detail'
       ? 'map'
       : activeTab === 'papers'
-      ? 'read'
+      ? 'papers'
       : activeTab === 'experiments'
-      ? 'bench'
+      ? 'experiments'
       : activeTab === 'draft'
       ? 'draft'
       : 'map';
@@ -57,18 +57,18 @@ export function LeftRail({ activeTab, onSelectTab }: LeftRailProps) {
       icon: <GitBranch className="w-4 h-4" />,
     },
     {
-      id: 'read',
-      key: 'R',
+      id: 'papers',
+      key: 'P',
       num: '03',
-      label: 'Read',
+      label: 'Papers',
       targetTab: 'papers',
       icon: <BookOpen className="w-4 h-4" />,
     },
     {
-      id: 'bench',
-      key: 'B',
+      id: 'experiments',
+      key: 'E',
       num: '04',
-      label: 'Bench',
+      label: 'Experiments',
       targetTab: 'experiments',
       icon: <FlaskConical className="w-4 h-4" />,
     },

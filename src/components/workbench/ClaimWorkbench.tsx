@@ -12,6 +12,7 @@ import { ClaimToQuestionReason } from './ClaimToQuestionReason';
 import { SupportFindingsList } from './SupportFindingsList';
 import { ClaimHistorySection } from './ClaimHistorySection';
 import { UserNoteModal, ModalType } from './UserNoteModal';
+import { SurfaceNote } from '../../guidance';
 
 interface ClaimWorkbenchProps {
   claim: ClaimNode;
@@ -478,8 +479,11 @@ export function ClaimWorkbench({
   return (
     <div
       id="workbench-surface-container"
-      className="w-full max-w-4xl mx-auto px-4 sm:px-6 py-6 space-y-2 animate-in fade-in duration-150"
+      className="w-full max-w-4xl mx-auto px-4 sm:px-6 py-6 space-y-4 animate-in fade-in duration-150"
     >
+      {/* Dismissible Surface Purpose Note */}
+      <SurfaceNote surfaceId="readiness" />
+
       {/* 1. Header with Back button, Question, and primary Claim */}
       <ClaimHeader
         claim={claim}

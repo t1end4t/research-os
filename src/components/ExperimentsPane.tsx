@@ -20,6 +20,7 @@ import {
   ExternalLink,
   Plus,
 } from 'lucide-react';
+import { Tooltip, ExplainerButton, GUIDANCE_COPY } from '../guidance';
 
 interface ExperimentsPaneProps {
   questions: QuestionNode[];
@@ -238,9 +239,12 @@ export function ExperimentsPane({
       >
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
-            <h1 className="font-mono text-[13px] font-bold uppercase tracking-[0.08em] text-ink">
-              EXPERIMENTS
-            </h1>
+            <div className="flex items-center gap-2">
+              <h1 className="font-mono text-[13px] font-bold uppercase tracking-[0.08em] text-ink">
+                EXPERIMENTS
+              </h1>
+              <ExplainerButton explainerKey="experiment_grouped_by_claim" surfaceId="experiments" />
+            </div>
             <p className="text-[12px] font-sans text-ink-muted mt-0.5">
               Tests and outputs, grouped by the claims they were meant to examine.
             </p>

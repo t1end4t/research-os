@@ -1,6 +1,7 @@
 import React from 'react';
 import { MapClaimNode } from './mapLayout';
 import { SectionLabel, StatusBar } from '../ui/instrument';
+import { Tooltip, Term, GUIDANCE_COPY } from '../../guidance';
 
 interface MapClaimCardProps {
   key?: React.Key;
@@ -76,14 +77,18 @@ export function MapClaimCard({
 
         <div className="flex items-center gap-1.5">
           {node.isRejected && (
-            <span className="text-[9px] font-mono uppercase px-1 py-0.2 bg-paper border border-rule text-ink-muted line-through">
-              REJECTED
-            </span>
+            <Tooltip content={GUIDANCE_COPY.terms.rejected}>
+              <span className="text-[9px] font-mono uppercase px-1 py-0.2 bg-paper border border-rule text-ink-muted line-through cursor-help">
+                REJECTED
+              </span>
+            </Tooltip>
           )}
           {node.isModelProduced && (
-            <span className="text-[9px] font-mono text-ink-muted border border-dashed border-rule px-1 py-0.2">
-              [model]
-            </span>
+            <Tooltip content={GUIDANCE_COPY.model.attribution}>
+              <span className="text-[9px] font-mono text-ink-muted border border-dashed border-rule px-1 py-0.2 cursor-help">
+                [model]
+              </span>
+            </Tooltip>
           )}
         </div>
       </div>

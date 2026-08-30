@@ -14,6 +14,7 @@ import {
   ArrowUpDown,
   BookOpen,
 } from 'lucide-react';
+import { Tooltip, ExplainerButton, Term, GUIDANCE_COPY } from '../../guidance';
 
 interface SupportFindingsListProps {
   claim: ClaimNode;
@@ -68,43 +69,60 @@ export function SupportFindingsList({
       {/* Section Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <SectionLabel mono className="text-[11px] text-ink font-medium">
-            SUPPORT · {findings.length}{' '}
-            {findings.length === 1 ? 'finding' : 'findings'}
-          </SectionLabel>
+          <div className="flex items-center gap-2">
+            <SectionLabel mono className="text-[11px] text-ink font-medium">
+              SUPPORT · {findings.length}{' '}
+              {findings.length === 1 ? 'finding' : 'findings'}
+            </SectionLabel>
+            <ExplainerButton explainerKey="finding_not_paper" surfaceId="workbench" />
+          </div>
 
           {findings.length > 1 && (
-            <button
-              onClick={() => setSortByDefects(!sortByDefects)}
-              className="inline-flex items-center gap-1 text-[11px] font-mono text-ink-muted hover:text-ink transition-colors cursor-pointer"
-              title="Toggle sort order"
-            >
-              <ArrowUpDown className="w-3 h-3" />
-              <span>
-                {sortByDefects ? 'Sort: Defects first' : 'Sort: Creation order'}
-              </span>
-            </button>
+            <Tooltip content="Toggle between defect priority ordering and chronological creation order">
+              <button
+                onClick={() => setSortByDefects(!sortByDefects)}
+                className="inline-flex items-center gap-1 text-[11px] font-mono text-ink-muted hover:text-ink transition-colors cursor-pointer"
+              >
+                <ArrowUpDown className="w-3 h-3" />
+                <span>
+                  {sortByDefects ? 'Sort: Defects first' : 'Sort: Creation order'}
+                </span>
+              </button>
+            </Tooltip>
           )}
         </div>
 
         {/* Check all links action */}
         {findings.length > 0 && (
-          <Button
-            id="workbench-check-all-links"
-            size="sm"
-            variant="secondary"
-            onClick={onCheckAllLinks}
-            disabled={checkableCount === 0}
-            title={
-              checkableCount === 0
-                ? 'All findings lack user reasons — write reasons before checking'
-                : `Run 3-axis checks on all ${checkableCount} ready findings`
-            }
-            className="flex items-center gap-1.5"
-          >
-            <ShieldCheck className="w-3.5 h-3.5 text-ink-muted" />
-            Check all links ({checkableCount}/{findings.length})
-          </Button>
+          checkableCount === 0 ? (
+            <Tooltip content={GUIDANCE_COPY.disabled.check_link}>
+              <div className="cursor-help">
+                <Button
+                  id="workbench-check-all-links-disabled"
+                  size="sm"
+                  variant="secondary"
+                  disabled
+                  className="opacity-40 cursor-not-allowed flex items-center gap-1.5"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-ink-muted" />
+                  Check all links ({checkableCount}/{findings.length})
+                </Button>
+              </div>
+            </Tooltip>
+          ) : (
+            <Tooltip content={`Run 3-axis checks on all ${checkableCount} ready findings`}>
+              <Button
+                id="workbench-check-all-links"
+                size="sm"
+                variant="secondary"
+                onClick={onCheckAllLinks}
+                className="flex items-center gap-1.5"
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-ink-muted" />
+                Check all links ({checkableCount}/{findings.length})
+              </Button>
+            </Tooltip>
+          )
         )}
       </div>
 
@@ -116,7 +134,7 @@ export function SupportFindingsList({
         >
           <div className="max-w-md mx-auto space-y-2">
             <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-[2px] bg-missing/10 text-missing text-[11px] font-mono uppercase tracking-wider font-medium">
-              ! STRUCTURAL HOLE · NO EVIDENCE LINKED
+              ! <Term name="ghost">STRUCTURAL HOLE · NO EVIDENCE LINKED</Term>
             </div>
             <p className="font-serif text-[15px] text-ink leading-relaxed">
               No evidence findings are attached to this claim yet. An unsupported
@@ -205,34 +223,34 @@ export function SupportFindingsList({
                   {/* Individual Check button */}
                   <div className="flex items-center gap-2">
                     {!hasReason ? (
-                      <div
-                        className="flex items-center gap-1.5"
-                        title="Write why this supports the claim before it can be checked."
-                      >
+                      <Tooltip content={GUIDANCE_COPY.disabled.check_link}>
+                        <div className="flex items-center gap-1.5 cursor-help">
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            disabled
+                            className="opacity-40 cursor-not-allowed"
+                          >
+                            <ShieldCheck className="w-3 h-3" />
+                            Check
+                          </Button>
+                          <span className="text-[10px] font-mono text-missing">
+                            (! reason missing)
+                          </span>
+                        </div>
+                      </Tooltip>
+                    ) : (
+                      <Tooltip content="Request Examiner 3-axis check on this finding's support link">
                         <Button
                           size="sm"
                           variant="secondary"
-                          disabled
-                          className="opacity-40 cursor-not-allowed"
+                          onClick={() => onCheckEvidenceLink(finding.id)}
+                          className="flex items-center gap-1 hover:border-ink"
                         >
-                          <ShieldCheck className="w-3 h-3" />
+                          <ShieldCheck className="w-3 h-3 text-ink-muted" />
                           Check
                         </Button>
-                        <span className="text-[10px] font-mono text-missing">
-                          (! reason missing)
-                        </span>
-                      </div>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => onCheckEvidenceLink(finding.id)}
-                        className="flex items-center gap-1 hover:border-ink"
-                        title="Run 3-axis check on this link"
-                      >
-                        <ShieldCheck className="w-3 h-3 text-ink-muted" />
-                        Check
-                      </Button>
+                      </Tooltip>
                     )}
                   </div>
                 </div>

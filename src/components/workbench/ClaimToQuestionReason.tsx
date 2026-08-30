@@ -4,6 +4,7 @@ import { Button, SectionLabel, EmptyRequiredReason } from '../ui/instrument';
 import { ExaminerCheckBlock } from './ExaminerCheckBlock';
 import { InlineReasonEditor } from './InlineReasonEditor';
 import { Check, Edit3, ShieldCheck } from 'lucide-react';
+import { Tooltip, ExplainerButton, GUIDANCE_COPY } from '../../guidance';
 
 interface ClaimToQuestionReasonProps {
   claim: ClaimNode;
@@ -44,39 +45,46 @@ export function ClaimToQuestionReason({
       className="space-y-3 py-5"
     >
       <div className="flex items-center justify-between gap-3">
-        <SectionLabel mono className="text-[11px] text-ink font-medium">
-          WHY THIS ANSWERS THE QUESTION
-        </SectionLabel>
+        <div className="flex items-center gap-2">
+          <SectionLabel mono className="text-[11px] text-ink font-medium">
+            WHY THIS ANSWERS THE QUESTION
+          </SectionLabel>
+          <ExplainerButton explainerKey="reason_required" surfaceId="workbench" />
+        </div>
 
         {/* Check link button */}
         <div className="flex items-center gap-2">
           {!hasReason ? (
-            <div className="flex items-center gap-1.5" title="Write why this answers the question before it can be checked">
+            <Tooltip content={GUIDANCE_COPY.disabled.check_link}>
+              <div className="flex items-center gap-1.5 cursor-help">
+                <Button
+                  id="workbench-check-question-link-disabled"
+                  size="sm"
+                  variant="secondary"
+                  disabled
+                  className="opacity-50 cursor-not-allowed"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  Check Link
+                </Button>
+                <span className="text-[10px] font-mono text-missing">
+                  (! Reason required to check)
+                </span>
+              </div>
+            </Tooltip>
+          ) : (
+            <Tooltip content="Request Examiner 3-axis check on this question-claim reasoning link">
               <Button
-                id="workbench-check-question-link-disabled"
+                id="workbench-check-question-link"
                 size="sm"
                 variant="secondary"
-                disabled
-                className="opacity-50 cursor-not-allowed"
+                onClick={onCheckLink}
+                className="flex items-center gap-1.5 hover:border-ink"
               >
-                <ShieldCheck className="w-3.5 h-3.5" />
+                <ShieldCheck className="w-3.5 h-3.5 text-ink-muted" />
                 Check Link
               </Button>
-              <span className="text-[10px] font-mono text-missing">
-                (! Reason required to check)
-              </span>
-            </div>
-          ) : (
-            <Button
-              id="workbench-check-question-link"
-              size="sm"
-              variant="secondary"
-              onClick={onCheckLink}
-              className="flex items-center gap-1.5 hover:border-ink"
-            >
-              <ShieldCheck className="w-3.5 h-3.5 text-ink-muted" />
-              Check Link
-            </Button>
+            </Tooltip>
           )}
         </div>
       </div>
@@ -103,14 +111,15 @@ export function ClaimToQuestionReason({
             <p className="font-serif text-[15px] leading-relaxed text-ink select-text">
               {userReason}
             </p>
-            <button
-              onClick={() => setIsEditing(true)}
-              className="shrink-0 p-1 text-ink-muted hover:text-ink hover:bg-paper rounded-[2px] transition-colors"
-              title="Edit reason in place"
-              aria-label="Edit why this claim answers question"
-            >
-              <Edit3 className="w-3.5 h-3.5" />
-            </button>
+            <Tooltip content="Edit reason in place">
+              <button
+                onClick={() => setIsEditing(true)}
+                className="shrink-0 p-1 text-ink-muted hover:text-ink hover:bg-paper rounded-[2px] transition-colors cursor-pointer"
+                aria-label="Edit why this claim answers question"
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+              </button>
+            </Tooltip>
           </div>
         </div>
       )}

@@ -28,7 +28,6 @@ import {
   RotateCcw,
   CheckCircle,
   Quote,
-  Sparkles,
   BookOpen,
 } from 'lucide-react';
 

@@ -2,6 +2,7 @@ import React from 'react';
 import { ExaminerCheckResult } from '../../types';
 import { ModelBlock } from '../ui/instrument';
 import { AlertCircle } from 'lucide-react';
+import { Term, Tooltip, GUIDANCE_COPY } from '../../guidance';
 
 interface ExaminerCheckBlockProps {
   checkResult: ExaminerCheckResult;
@@ -44,6 +45,14 @@ export function ExaminerCheckBlock({
     }
   };
 
+  const renderAxisLabel = (label: string) => {
+    const lower = label.toLowerCase();
+    if (lower === 'type') return <Term name="type">TYPE</Term>;
+    if (lower === 'scope') return <Term name="scope">SCOPE</Term>;
+    if (lower === 'target') return <Term name="target">TARGET</Term>;
+    return <span>{label}</span>;
+  };
+
   return (
     <ModelBlock
       modelId={checkResult.modelId || 'cx/gpt-5.6-sol'}
@@ -52,16 +61,18 @@ export function ExaminerCheckBlock({
     >
       {/* Stale Warning if checked against earlier text/reason */}
       {stale && (
-        <div
-          id="examiner-stale-warning"
-          className="flex items-center gap-1.5 px-2 py-1 bg-weak/10 border border-weak/40 text-weak rounded-[2px] text-[11px] font-sans"
-        >
-          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-          <span>
-            {checkResult.staleNote ||
-              'Checked against an earlier version of this reason or claim.'}
-          </span>
-        </div>
+        <Tooltip content={GUIDANCE_COPY.terms.stale_reference}>
+          <div
+            id="examiner-stale-warning"
+            className="flex items-center gap-1.5 px-2 py-1 bg-weak/10 border border-weak/40 text-weak rounded-[2px] text-[11px] font-sans cursor-help"
+          >
+            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+            <span>
+              {checkResult.staleNote ||
+                'Checked against an earlier version of this reason or claim.'}
+            </span>
+          </div>
+        </Tooltip>
       )}
 
       {/* 3-Axis Table */}
@@ -72,7 +83,7 @@ export function ExaminerCheckBlock({
             className="grid grid-cols-[68px_82px_1fr] items-baseline px-2.5 py-1.5 gap-2"
           >
             <span className="text-ink-muted font-bold text-[11px] tracking-wider uppercase">
-              {axis.label}
+              {renderAxisLabel(axis.label)}
             </span>
             <span
               className={`text-[11px] tracking-tight uppercase ${getVerdictStyle(

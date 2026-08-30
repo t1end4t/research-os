@@ -23,6 +23,7 @@ import { MapGhostCard } from './MapGhostCard';
 import { MapConnections } from './MapConnections';
 import { MapHeader } from './MapHeader';
 import { Button } from '../ui/instrument';
+import { SurfaceNote } from '../../guidance';
 
 export interface ArgumentMapProps {
   questions: QuestionNode[];
@@ -304,6 +305,9 @@ export function ArgumentMap({
         weakCount={layout.counts.weak}
         missingCount={layout.counts.missing}
       />
+
+      {/* Dismissible Surface Purpose Note */}
+      <SurfaceNote surfaceId="map" />
 
       {/* Main Argument Map Scrollable Canvas Area (Structured Engineering Layout) */}
       <div

@@ -7,15 +7,13 @@ import {
   Unlink,
   Link2,
   ArrowRight,
-  Sparkles,
+  GitBranch,
   BookOpen,
   CircleDotDashed,
-  Network,
   Calendar,
-  ExternalLink,
-  Plus,
 } from 'lucide-react';
 import { CandidateQuestion, OpenProblemNote } from '../../types';
+import { SectionLabel, Button } from '../ui/instrument';
 
 interface SurveyNodeInspectorProps {
   selectedNode:
@@ -52,7 +50,6 @@ export function SurveyNodeInspector({
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState('');
   const [editCitation, setEditCitation] = useState('');
-  const [linkTargetCandidateId, setLinkTargetCandidateId] = useState('');
   const [linkTargetProblemId, setLinkTargetProblemId] = useState('');
 
   useEffect(() => {
@@ -60,7 +57,6 @@ export function SurveyNodeInspector({
     if (selectedNode?.type === 'problem') {
       setEditText(selectedNode.problem.text);
       setEditCitation(selectedNode.problem.citation || '');
-      setLinkTargetCandidateId(selectedNode.linkedCandidate?.id || '');
     } else if (selectedNode?.type === 'candidate') {
       setEditText(selectedNode.candidate.text);
       setEditCitation('');
@@ -103,21 +99,21 @@ export function SurveyNodeInspector({
 
   return (
     <aside
-      id="obsidian-node-inspector"
-      aria-label="Node Inspector"
-      className="absolute top-4 right-4 z-30 w-88 max-h-[calc(100vh-140px)] flex flex-col rounded-2xl bg-white/95 dark:bg-[#15151a]/95 backdrop-blur-xl border border-stone-200/90 dark:border-stone-800/90 shadow-2xl overflow-hidden animate-in fade-in slide-in-from-right-4 duration-200"
+      id="survey-node-inspector"
+      aria-label="Survey Node Inspector"
+      className="absolute top-4 right-4 z-30 w-84 max-h-[calc(100vh-140px)] flex flex-col rounded-[2px] bg-surface border border-rule shadow-lg overflow-hidden animate-in fade-in duration-150"
     >
-      {/* Inspector Top Header Bar */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-stone-100 dark:border-stone-800/80 bg-stone-50/70 dark:bg-[#1a1a22]/70">
+      {/* Inspector Header */}
+      <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-rule bg-paper">
         <div className="flex items-center gap-2">
           {isProblem ? (
-            <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">
-              <CircleDotDashed className="w-3 h-3" />
+            <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-[2px] text-[10px] font-mono font-bold uppercase tracking-wider bg-surface border border-rule text-ink">
+              <CircleDotDashed className="w-3 h-3 text-ink-muted" />
               Open Problem
             </span>
           ) : (
-            <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-purple-500/10 text-purple-600 dark:text-purple-300 border border-purple-500/20">
-              <Network className="w-3 h-3" />
+            <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-[2px] text-[10px] font-mono font-bold uppercase tracking-wider bg-surface border border-rule text-ink">
+              <GitBranch className="w-3 h-3 text-ink-muted" />
               Candidate Question
             </span>
           )}
@@ -128,8 +124,9 @@ export function SurveyNodeInspector({
             <button
               type="button"
               onClick={() => setIsEditing(true)}
-              className="p-1 rounded-md text-stone-500 hover:text-stone-800 dark:text-stone-400 dark:hover:text-stone-200 hover:bg-stone-200/60 dark:hover:bg-stone-800"
+              className="p-1 rounded-[2px] text-ink-muted hover:text-ink hover:bg-surface transition-colors cursor-pointer"
               title="Edit text"
+              aria-label="Edit text"
             >
               <Edit2 className="w-3.5 h-3.5" />
             </button>
@@ -137,8 +134,9 @@ export function SurveyNodeInspector({
           <button
             type="button"
             onClick={onClose}
-            className="p-1 rounded-md text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 hover:bg-stone-200/60 dark:hover:bg-stone-800"
+            className="p-1 rounded-[2px] text-ink-muted hover:text-ink hover:bg-surface transition-colors cursor-pointer"
             title="Close inspector"
+            aria-label="Close inspector"
           >
             <X className="w-4 h-4" />
           </button>
@@ -146,12 +144,12 @@ export function SurveyNodeInspector({
       </div>
 
       {/* Body Content */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 text-stone-800 dark:text-stone-200 custom-scrollbar text-xs">
+      <div className="flex-1 overflow-y-auto p-3.5 space-y-3.5 text-ink text-xs">
         {/* Editing Mode */}
         {isEditing ? (
-          <div className="space-y-3 bg-stone-50 dark:bg-[#1a1a22] p-3 rounded-xl border border-stone-200/70 dark:border-stone-800/80">
+          <div className="space-y-3 bg-paper p-3 rounded-[2px] border border-rule">
             <div>
-              <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-500 mb-1">
+              <label className="block text-[10px] font-mono font-bold uppercase tracking-wider text-ink-muted mb-1">
                 {isProblem ? 'Open Problem Question' : 'Candidate Question'}
               </label>
               <textarea
@@ -159,13 +157,13 @@ export function SurveyNodeInspector({
                 autoFocus
                 value={editText}
                 onChange={(e) => setEditText(e.target.value)}
-                className="w-full resize-none rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-[#121216] px-2.5 py-2 text-xs text-stone-900 dark:text-stone-100 focus:outline-none focus:border-purple-500"
+                className="w-full resize-none rounded-[2px] border border-rule bg-surface p-2 text-xs text-ink font-serif focus:outline-none focus:border-ink"
               />
             </div>
 
             {isProblem && (
               <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-500 mb-1">
+                <label className="block text-[10px] font-mono font-bold uppercase tracking-wider text-ink-muted mb-1">
                   Source / Citation
                 </label>
                 <input
@@ -173,7 +171,7 @@ export function SurveyNodeInspector({
                   value={editCitation}
                   onChange={(e) => setEditCitation(e.target.value)}
                   placeholder="e.g. Olshausen & Field 1996"
-                  className="w-full rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-[#121216] px-2.5 py-1.5 text-xs text-stone-900 dark:text-stone-100 focus:outline-none focus:border-purple-500"
+                  className="w-full rounded-[2px] border border-rule bg-surface px-2 py-1.5 text-xs text-ink font-mono focus:outline-none focus:border-ink"
                 />
               </div>
             )}
@@ -182,38 +180,39 @@ export function SurveyNodeInspector({
               <button
                 type="button"
                 onClick={() => setIsEditing(false)}
-                className="px-2.5 py-1 text-xs text-stone-500 hover:text-stone-800 dark:hover:text-stone-200"
+                className="px-2.5 py-1 text-xs text-ink-muted hover:text-ink cursor-pointer"
               >
                 Cancel
               </button>
-              <button
-                type="button"
+              <Button
+                size="sm"
+                variant="primary"
                 onClick={handleSaveEdit}
-                className="inline-flex items-center gap-1.5 px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium shadow-xs"
+                className="inline-flex items-center gap-1.5"
               >
                 <Check className="w-3 h-3" />
-                Save Changes
-              </button>
+                Save
+              </Button>
             </div>
           </div>
         ) : (
           /* View Mode */
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <p className="text-[13px] font-medium leading-relaxed text-stone-900 dark:text-stone-100 selection:bg-purple-500/20">
+              <p className="font-serif text-[13px] leading-relaxed text-ink">
                 {isProblem ? problem?.text : candidate?.text}
               </p>
 
               {isProblem && problem?.citation && (
-                <div className="flex items-center gap-1.5 text-[11px] text-stone-500 dark:text-stone-400 bg-stone-100/80 dark:bg-stone-800/60 px-2 py-1 rounded-lg w-fit">
-                  <BookOpen className="w-3 h-3 text-stone-400" />
+                <div className="flex items-center gap-1.5 text-[11px] text-ink-muted bg-paper px-2 py-1 rounded-[2px] border border-rule/60 w-fit">
+                  <BookOpen className="w-3 h-3 text-ink-muted" />
                   <span className="font-mono">{problem.citation}</span>
                 </div>
               )}
             </div>
 
             {/* Timestamps & Metadata */}
-            <div className="flex items-center gap-2 text-[10px] text-stone-400 pt-1 border-t border-stone-100 dark:border-stone-800/80">
+            <div className="flex items-center gap-2 text-[10px] font-mono text-ink-muted pt-1 border-t border-rule/60">
               <Calendar className="w-3 h-3" />
               <span>
                 Created{' '}
@@ -231,13 +230,13 @@ export function SurveyNodeInspector({
         )}
 
         {/* Section: Relationships & Clustering */}
-        <div className="pt-2 border-t border-stone-100 dark:border-stone-800/80 space-y-2">
-          <div className="flex items-center justify-between text-[11px] font-semibold text-stone-500 dark:text-stone-400 uppercase tracking-wider">
+        <div className="pt-2 border-t border-rule space-y-2">
+          <div className="flex items-center justify-between text-[11px] font-mono font-medium text-ink-muted uppercase tracking-wider">
             <div className="flex items-center gap-1.5">
-              <Link2 className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+              <Link2 className="w-3.5 h-3.5 text-ink-muted" />
               <span>Cluster Connections</span>
             </div>
-            <span className="text-[10px] font-normal lowercase text-stone-400">
+            <span className="text-[10px] font-mono normal-case text-ink-muted">
               {isProblem
                 ? linkedCandidate
                   ? '1 linked candidate'
@@ -248,17 +247,17 @@ export function SurveyNodeInspector({
 
           {/* If Open Problem: Show linked candidate or allow selecting one */}
           {isProblem && problem && (
-            <div className="space-y-2 bg-stone-50 dark:bg-[#1a1a22] p-2.5 rounded-xl border border-stone-100 dark:border-stone-800/80">
+            <div className="space-y-2 bg-paper p-2.5 rounded-[2px] border border-rule">
               {linkedCandidate ? (
                 <div className="space-y-1.5">
-                  <div className="text-[10px] text-stone-500 uppercase font-semibold">
+                  <div className="text-[10px] font-mono text-ink-muted uppercase font-semibold">
                     Current Candidate
                   </div>
-                  <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-white dark:bg-[#121216] border border-purple-500/30">
+                  <div className="flex items-center justify-between gap-2 p-2 rounded-[2px] bg-surface border border-rule">
                     <button
                       type="button"
                       onClick={() => onSelectNodeById('candidate', linkedCandidate.id)}
-                      className="text-left font-medium text-purple-700 dark:text-purple-300 hover:underline line-clamp-2 text-xs"
+                      className="text-left font-serif text-[12px] text-ink hover:underline line-clamp-2 cursor-pointer"
                     >
                       {linkedCandidate.text}
                     </button>
@@ -266,7 +265,8 @@ export function SurveyNodeInspector({
                       type="button"
                       onClick={() => onUnlinkProblemFromCandidate(linkedCandidate.id, problem.id)}
                       title="Unlink from candidate"
-                      className="p-1 rounded text-stone-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors shrink-0"
+                      aria-label="Unlink from candidate"
+                      className="p-1 rounded-[2px] text-ink-muted hover:text-missing hover:bg-paper transition-colors shrink-0 cursor-pointer"
                     >
                       <Unlink className="w-3.5 h-3.5" />
                     </button>
@@ -274,12 +274,12 @@ export function SurveyNodeInspector({
                 </div>
               ) : (
                 <div className="space-y-1.5">
-                  <div className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
-                    This problem is free-floating (unresolved).
+                  <div className="text-[10px] font-mono text-weak font-medium">
+                    This problem is loose (unclustered).
                   </div>
                   {candidateQuestions.length > 0 ? (
                     <div className="space-y-1">
-                      <label className="text-[10px] text-stone-500 font-semibold block">
+                      <label className="text-[10px] font-mono text-ink-muted font-semibold block">
                         Link to Candidate Question:
                       </label>
                       <select
@@ -287,7 +287,7 @@ export function SurveyNodeInspector({
                         onChange={(e) => {
                           if (e.target.value) handleLinkProblemToNewCandidate(e.target.value);
                         }}
-                        className="w-full text-xs rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-[#121216] px-2 py-1.5 text-stone-800 dark:text-stone-200 focus:outline-none focus:border-purple-500"
+                        className="w-full text-xs rounded-[2px] border border-rule bg-surface px-2 py-1.5 text-ink focus:outline-none focus:border-ink"
                       >
                         <option value="">Select Candidate Question...</option>
                         {candidateQuestions.map((cq) => (
@@ -298,7 +298,7 @@ export function SurveyNodeInspector({
                       </select>
                     </div>
                   ) : (
-                    <p className="text-[10px] text-stone-400">
+                    <p className="text-[10px] font-sans text-ink-muted italic">
                       Create a candidate question to link this note.
                     </p>
                   )}
@@ -309,18 +309,18 @@ export function SurveyNodeInspector({
 
           {/* If Candidate Question: List linked problems + allow adding unlinked ones */}
           {!isProblem && candidate && (
-            <div className="space-y-2 bg-stone-50 dark:bg-[#1a1a22] p-2.5 rounded-xl border border-stone-100 dark:border-stone-800/80">
+            <div className="space-y-2 bg-paper p-2.5 rounded-[2px] border border-rule">
               {linkedProblems.length > 0 ? (
-                <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1 custom-scrollbar">
+                <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
                   {linkedProblems.map((lp) => (
                     <div
                       key={lp.id}
-                      className="flex items-start justify-between gap-2 p-2 rounded-lg bg-white dark:bg-[#121216] border border-stone-200/60 dark:border-stone-800/60 hover:border-purple-500/40 transition-colors"
+                      className="flex items-start justify-between gap-2 p-2 rounded-[2px] bg-surface border border-rule hover:border-ink-muted transition-colors"
                     >
                       <button
                         type="button"
                         onClick={() => onSelectNodeById('problem', lp.id)}
-                        className="text-left text-[11px] leading-relaxed text-stone-700 dark:text-stone-300 hover:text-purple-600 dark:hover:text-purple-400 line-clamp-2"
+                        className="text-left font-serif text-[11px] leading-relaxed text-ink hover:underline line-clamp-2 cursor-pointer"
                       >
                         {lp.text}
                       </button>
@@ -328,7 +328,8 @@ export function SurveyNodeInspector({
                         type="button"
                         onClick={() => onUnlinkProblemFromCandidate(candidate.id, lp.id)}
                         title="Unlink note"
-                        className="p-1 rounded text-stone-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 shrink-0"
+                        aria-label="Unlink note"
+                        className="p-1 rounded-[2px] text-ink-muted hover:text-missing hover:bg-paper transition-colors shrink-0 cursor-pointer"
                       >
                         <Unlink className="w-3 h-3" />
                       </button>
@@ -336,23 +337,23 @@ export function SurveyNodeInspector({
                   ))}
                 </div>
               ) : (
-                <p className="text-[11px] text-stone-400 italic py-1">
+                <p className="text-[11px] font-sans text-ink-muted italic py-1">
                   No open problems linked yet. Drag problems onto this node or link below.
                 </p>
               )}
 
               {/* Link more notes */}
               {availableUnlinkedProblems.length > 0 && (
-                <div className="pt-2 border-t border-stone-200/60 dark:border-stone-800/60 flex gap-1.5">
+                <div className="pt-2 border-t border-rule flex gap-1.5">
                   <select
                     value={linkTargetProblemId}
                     onChange={(e) => setLinkTargetProblemId(e.target.value)}
-                    className="flex-1 text-xs rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-[#121216] px-2 py-1 text-stone-800 dark:text-stone-200 focus:outline-none focus:border-purple-500"
+                    className="flex-1 text-xs rounded-[2px] border border-rule bg-surface px-2 py-1 text-ink focus:outline-none focus:border-ink"
                   >
                     <option value="">+ Link another problem note...</option>
                     {availableUnlinkedProblems.map((p) => (
                       <option key={p.id} value={p.id}>
-                        {p.text.length > 40 ? `${p.text.slice(0, 40)}...` : p.text}
+                        {p.text.length > 36 ? `${p.text.slice(0, 36)}...` : p.text}
                       </option>
                     ))}
                   </select>
@@ -360,7 +361,7 @@ export function SurveyNodeInspector({
                     type="button"
                     disabled={!linkTargetProblemId}
                     onClick={handleAddProblemToCandidate}
-                    className="px-2.5 py-1 bg-stone-900 dark:bg-white text-white dark:text-stone-900 rounded-lg disabled:opacity-30 text-xs font-medium"
+                    className="px-2.5 py-1 bg-ink text-paper rounded-[2px] disabled:opacity-30 text-xs font-mono font-medium cursor-pointer"
                   >
                     Add
                   </button>
@@ -372,23 +373,23 @@ export function SurveyNodeInspector({
 
         {/* Section: Candidate Question Promotion Action */}
         {!isProblem && candidate && (
-          <div className="pt-2 border-t border-stone-100 dark:border-stone-800/80">
+          <div className="pt-2 border-t border-rule">
             <button
               id={`promote-btn-${candidate.id}`}
               type="button"
               onClick={() => onOpenPromoteModal(candidate)}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white font-medium text-xs shadow-md transition-all cursor-pointer group"
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-[2px] bg-ink hover:bg-ink/90 active:bg-ink text-paper font-mono text-[11px] font-semibold uppercase tracking-wider transition-colors cursor-pointer"
             >
-              <Sparkles className="w-3.5 h-3.5 group-hover:rotate-12 transition-transform" />
+              <GitBranch className="w-3.5 h-3.5" />
               <span>Promote to Question Node</span>
-              <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+              <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>
         )}
 
         {/* Danger zone: Delete note */}
-        <div className="pt-2 border-t border-stone-100 dark:border-stone-800/80 flex justify-between items-center text-stone-400">
-          <span className="text-[10px]">ID: {isProblem ? problem?.id : candidate?.id}</span>
+        <div className="pt-2 border-t border-rule flex justify-between items-center text-ink-muted">
+          <span className="text-[10px] font-mono">ID: {isProblem ? problem?.id : candidate?.id}</span>
           <button
             type="button"
             onClick={() => {
@@ -400,7 +401,7 @@ export function SurveyNodeInspector({
                 onClose();
               }
             }}
-            className="flex items-center gap-1 text-[11px] text-red-500/80 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 px-2 py-1 rounded-md transition-colors"
+            className="flex items-center gap-1 text-[11px] font-mono text-missing hover:underline px-1 py-0.5 cursor-pointer"
           >
             <Trash2 className="w-3 h-3" />
             <span>Delete</span>

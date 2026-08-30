@@ -946,7 +946,7 @@ export function ObsidianSurveyGraph({
           type="button"
           onClick={centerGraph}
           title="Fit view / Center graph"
-          className="p-1.5 rounded-xl text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 hover:text-purple-600 dark:hover:text-purple-400 transition-colors"
+          className="p-1.5 rounded-xl text-ink-muted hover:bg-paper hover:text-ink transition-colors cursor-pointer"
         >
           <Maximize2 className="w-4 h-4" />
         </button>
@@ -956,10 +956,10 @@ export function ObsidianSurveyGraph({
             onOptionsChange((prev) => ({ ...prev, isPhysicsActive: !prev.isPhysicsActive }))
           }
           title={options.isPhysicsActive ? 'Freeze physics' : 'Unfreeze physics simulation'}
-          className={`p-1.5 rounded-xl transition-colors ${
+          className={`p-1.5 rounded-xl transition-colors cursor-pointer ${
             options.isPhysicsActive
-              ? 'text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950/40'
-              : 'text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
+              ? 'text-ink font-medium hover:bg-paper'
+              : 'text-ink-muted/70 hover:bg-paper'
           }`}
         >
           {options.isPhysicsActive ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
@@ -970,15 +970,15 @@ export function ObsidianSurveyGraph({
       {hoveredNode && tooltipPos && (
         <div
           id="obsidian-graph-hover-tooltip"
-          className="pointer-events-none fixed z-50 max-w-xs -translate-x-1/2 -translate-y-full -mt-3 rounded-xl bg-stone-900/95 dark:bg-[#1c1c24]/95 backdrop-blur-md px-3 py-2 text-white shadow-2xl border border-stone-700/50 text-[11px] space-y-1 animate-in fade-in zoom-in-95 duration-100"
+          className="pointer-events-none fixed z-50 max-w-xs -translate-x-1/2 -translate-y-full -mt-3 rounded-[2px] bg-ink text-paper px-3 py-2 shadow-lg border border-rule text-[11px] space-y-1 animate-in fade-in duration-100"
           style={{ left: tooltipPos.x, top: tooltipPos.y }}
         >
-          <div className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider text-purple-300">
-            {hoveredNode.type === 'candidate' ? '🟣 Candidate Question' : '🟢 Open Problem Note'}
+          <div className="flex items-center gap-1.5 text-[9px] font-mono font-bold uppercase tracking-wider text-paper/80">
+            {hoveredNode.type === 'candidate' ? 'Candidate Question' : 'Open Problem Note'}
           </div>
-          <p className="line-clamp-3 leading-snug font-medium">{hoveredNode.text}</p>
+          <p className="line-clamp-3 leading-snug font-serif">{hoveredNode.text}</p>
           {hoveredNode.citation && (
-            <p className="text-[10px] text-stone-400 font-mono italic">
+            <p className="text-[10px] text-paper/70 font-mono italic">
               Source: {hoveredNode.citation}
             </p>
           )}

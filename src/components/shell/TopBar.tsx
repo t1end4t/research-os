@@ -1,6 +1,7 @@
 import React from 'react';
 import { Sun, Moon } from 'lucide-react';
 import { SectionLabel } from '../ui/instrument';
+import { Tooltip, ExplainerButton, GUIDANCE_COPY } from '../../guidance';
 
 export interface TopBarProps {
   workspacePath?: string;
@@ -51,16 +52,14 @@ export function TopBar({
 
         <div className="h-3 w-[1px] bg-rule" />
 
-        {/* Workspace Selector */}
+        {/* Workspace Display (Read-only location context) */}
         <div className="flex items-center gap-1.5 text-[11px] font-mono text-ink-muted">
           <span className="text-ink-muted/70">workspace:</span>
-          <button
-            title={`Active workspace directory: ${workspacePath}`}
-            className="inline-flex items-center gap-1 font-mono text-ink hover:text-ink font-medium px-1.5 py-0.5 rounded-[2px] hover:bg-paper transition-colors cursor-pointer"
-          >
-            <span>{workspaceFolder}</span>
-            <span className="text-[9px] text-ink-muted">▾</span>
-          </button>
+          <Tooltip content={`Active workspace directory: ${workspacePath}`}>
+            <span className="font-mono text-ink font-medium px-1 py-0.5 cursor-default">
+              {workspaceFolder}
+            </span>
+          </Tooltip>
         </div>
 
         <div className="h-3 w-[1px] bg-rule" />
@@ -91,55 +90,67 @@ export function TopBar({
       </div>
 
       {/* Right: Only mine toggle + Theme + ⌘J dock toggle */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2.5">
         {/* "Only mine" toggle: hides model-produced assertions */}
-        <button
-          id="only-mine-toggle-btn"
-          onClick={onToggleOnlyMine}
-          title="Toggle view: hide all model-produced check results and proposals"
-          aria-pressed={onlyMine}
-          className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-[2px] text-[11px] font-mono transition-colors border cursor-pointer ${
-            onlyMine
-              ? 'bg-ink text-paper border-ink font-medium'
-              : 'bg-surface text-ink-muted hover:text-ink border-rule/80 hover:bg-paper'
-          }`}
-        >
-          <span>only mine</span>
-          <span className="text-[10px]">{onlyMine ? '●' : '○'}</span>
-        </button>
+        <div className="flex items-center gap-1">
+          <Tooltip content={GUIDANCE_COPY.model.attribution}>
+            <button
+              id="only-mine-toggle-btn"
+              onClick={onToggleOnlyMine}
+              aria-pressed={onlyMine}
+              className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-[2px] text-[11px] font-mono transition-colors border cursor-pointer ${
+                onlyMine
+                  ? 'bg-ink text-paper border-ink font-medium'
+                  : 'bg-surface text-ink-muted hover:text-ink border-rule/80 hover:bg-paper'
+              }`}
+            >
+              <span>only mine</span>
+              <span className="text-[10px]">{onlyMine ? '●' : '○'}</span>
+            </button>
+          </Tooltip>
+          <ExplainerButton explainerKey="only_mine" />
+        </div>
 
         <div className="h-3 w-[1px] bg-rule" />
 
         {/* ⌘J Assistant Dock Toggle Hint / Button */}
-        <button
-          id="toggle-dock-btn"
-          onClick={onToggleAssistant}
-          title={`Toggle Examiner Dock (${shortcutHint})`}
-          aria-label="Toggle Examiner Dock"
-          aria-pressed={isAssistantOpen}
-          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-[2px] text-[11px] font-mono transition-colors border cursor-pointer ${
-            isAssistantOpen
-              ? 'bg-ink text-paper border-ink'
-              : 'bg-surface text-ink-muted hover:text-ink border-rule hover:bg-paper'
-          }`}
-        >
-          <span className="font-semibold">{shortcutHint}</span>
-        </button>
+        <Tooltip content={GUIDANCE_COPY.actions.toggle_dock}>
+          <button
+            id="toggle-dock-btn"
+            onClick={onToggleAssistant}
+            aria-label="Toggle Examiner Dock"
+            aria-pressed={isAssistantOpen}
+            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-[2px] text-[11px] font-mono transition-colors border cursor-pointer ${
+              isAssistantOpen
+                ? 'bg-ink text-paper border-ink'
+                : 'bg-surface text-ink-muted hover:text-ink border-rule hover:bg-paper'
+            }`}
+          >
+            <span className="font-semibold">{shortcutHint}</span>
+          </button>
+        </Tooltip>
 
         {/* Dark Mode Toggle */}
-        <button
-          id="theme-toggle-btn"
-          onClick={onToggleDarkMode}
-          title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
-          aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
-          className="p-1 rounded-[2px] text-ink-muted hover:text-ink hover:bg-paper border border-transparent hover:border-rule transition-colors cursor-pointer"
+        <Tooltip
+          content={
+            darkMode
+              ? GUIDANCE_COPY.actions.theme_light
+              : GUIDANCE_COPY.actions.theme_dark
+          }
         >
-          {darkMode ? (
-            <Sun className="w-3.5 h-3.5" />
-          ) : (
-            <Moon className="w-3.5 h-3.5" />
-          )}
-        </button>
+          <button
+            id="theme-toggle-btn"
+            onClick={onToggleDarkMode}
+            aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+            className="p-1 rounded-[2px] text-ink-muted hover:text-ink hover:bg-paper border border-transparent hover:border-rule transition-colors cursor-pointer"
+          >
+            {darkMode ? (
+              <Sun className="w-3.5 h-3.5" />
+            ) : (
+              <Moon className="w-3.5 h-3.5" />
+            )}
+          </button>
+        </Tooltip>
       </div>
     </header>
   );

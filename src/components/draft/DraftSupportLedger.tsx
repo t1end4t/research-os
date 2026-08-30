@@ -21,6 +21,7 @@ import {
 } from '../../utils/draftHelpers';
 import { setResearchItemDragData } from '../../researchItemDrag';
 import { SectionLabel, StatusDot, Button } from '../ui/instrument';
+import { Tooltip, ExplainerButton, Term, GUIDANCE_COPY } from '../../guidance';
 import {
   FileText,
   AlertCircle,
@@ -164,9 +165,12 @@ export function DraftSupportLedger({
       {/* Ledger Header & Mode Switch */}
       <div className="p-3 border-b border-rule flex flex-col gap-2 shrink-0 bg-surface">
         <div className="flex items-center justify-between">
-          <SectionLabel mono className="text-ink">
-            SUPPORT LEDGER
-          </SectionLabel>
+          <div className="flex items-center gap-1.5">
+            <SectionLabel mono className="text-ink">
+              SUPPORT LEDGER
+            </SectionLabel>
+            <ExplainerButton explainerKey="draft_drift" surfaceId="draft" />
+          </div>
           <span className="text-[10px] font-mono text-ink-muted">
             {activeSection ? activeSection.title.slice(0, 18) + '...' : 'Manuscript'}
           </span>
@@ -174,55 +178,63 @@ export function DraftSupportLedger({
 
         {/* 4 Modes: Claims | Findings | Artifacts | Gaps */}
         <div className="grid grid-cols-4 gap-1 p-0.5 bg-paper rounded-[2px] border border-rule/70 text-[11px] font-mono">
-          <button
-            id="draft-ledger-tab-claims"
-            onClick={() => onSelectLedgerMode('claims')}
-            className={`py-1 rounded-[2px] transition-colors cursor-pointer ${
-              ledgerMode === 'claims'
-                ? 'bg-surface font-semibold text-ink shadow-[0_1px_1px_rgba(0,0,0,0.05)]'
-                : 'text-ink-muted hover:text-ink'
-            }`}
-          >
-            Claims ({allClaims.length})
-          </button>
-          <button
-            id="draft-ledger-tab-findings"
-            onClick={() => onSelectLedgerMode('findings')}
-            className={`py-1 rounded-[2px] transition-colors cursor-pointer ${
-              ledgerMode === 'findings'
-                ? 'bg-surface font-semibold text-ink shadow-[0_1px_1px_rgba(0,0,0,0.05)]'
-                : 'text-ink-muted hover:text-ink'
-            }`}
-          >
-            Findings
-          </button>
-          <button
-            id="draft-ledger-tab-artifacts"
-            onClick={() => onSelectLedgerMode('artifacts')}
-            className={`py-1 rounded-[2px] transition-colors cursor-pointer ${
-              ledgerMode === 'artifacts'
-                ? 'bg-surface font-semibold text-ink shadow-[0_1px_1px_rgba(0,0,0,0.05)]'
-                : 'text-ink-muted hover:text-ink'
-            }`}
-          >
-            Artifacts
-          </button>
-          <button
-            id="draft-ledger-tab-gaps"
-            onClick={() => onSelectLedgerMode('gaps')}
-            className={`py-1 rounded-[2px] transition-colors cursor-pointer relative ${
-              ledgerMode === 'gaps'
-                ? 'bg-surface font-semibold text-ink shadow-[0_1px_1px_rgba(0,0,0,0.05)]'
-                : 'text-ink-muted hover:text-ink'
-            }`}
-          >
-            <span>Gaps</span>
-            {currentGaps.length > 0 && (
-              <span className="ml-1 px-1 rounded-full bg-missing/20 text-missing text-[9px] font-bold">
-                {currentGaps.length}
-              </span>
-            )}
-          </button>
+          <Tooltip content="Show all claims available to place as references in prose">
+            <button
+              id="draft-ledger-tab-claims"
+              onClick={() => onSelectLedgerMode('claims')}
+              className={`py-1 rounded-[2px] transition-colors cursor-pointer ${
+                ledgerMode === 'claims'
+                  ? 'bg-surface font-semibold text-ink shadow-[0_1px_1px_rgba(0,0,0,0.05)]'
+                  : 'text-ink-muted hover:text-ink'
+              }`}
+            >
+              Claims ({allClaims.length})
+            </button>
+          </Tooltip>
+          <Tooltip content="Show supporting and contrary findings for current section claims">
+            <button
+              id="draft-ledger-tab-findings"
+              onClick={() => onSelectLedgerMode('findings')}
+              className={`py-1 rounded-[2px] transition-colors cursor-pointer ${
+                ledgerMode === 'findings'
+                  ? 'bg-surface font-semibold text-ink shadow-[0_1px_1px_rgba(0,0,0,0.05)]'
+                  : 'text-ink-muted hover:text-ink'
+              }`}
+            >
+              Findings
+            </button>
+          </Tooltip>
+          <Tooltip content="Show artifact figures and tables connected to section claims">
+            <button
+              id="draft-ledger-tab-artifacts"
+              onClick={() => onSelectLedgerMode('artifacts')}
+              className={`py-1 rounded-[2px] transition-colors cursor-pointer ${
+                ledgerMode === 'artifacts'
+                  ? 'bg-surface font-semibold text-ink shadow-[0_1px_1px_rgba(0,0,0,0.05)]'
+                  : 'text-ink-muted hover:text-ink'
+              }`}
+            >
+              Artifacts
+            </button>
+          </Tooltip>
+          <Tooltip content="Inspect active gaps, unplaced contradictions, and broken references">
+            <button
+              id="draft-ledger-tab-gaps"
+              onClick={() => onSelectLedgerMode('gaps')}
+              className={`py-1 rounded-[2px] transition-colors cursor-pointer relative ${
+                ledgerMode === 'gaps'
+                  ? 'bg-surface font-semibold text-ink shadow-[0_1px_1px_rgba(0,0,0,0.05)]'
+                  : 'text-ink-muted hover:text-ink'
+              }`}
+            >
+              <span>Gaps</span>
+              {currentGaps.length > 0 && (
+                <span className="ml-1 px-1 py-0.2 rounded-full bg-missing text-white text-[9px] font-bold">
+                  {currentGaps.length}
+                </span>
+              )}
+            </button>
+          </Tooltip>
         </div>
       </div>
 

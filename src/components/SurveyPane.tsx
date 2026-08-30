@@ -7,7 +7,7 @@ import {
   Trash2,
   GripVertical,
   CornerDownRight,
-  Sparkles,
+  Layers,
   Check,
   ArrowRight,
   Tag,
@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { CandidateQuestion, OpenProblemNote, ClusteringProposal } from '../types';
 import { setResearchItemDragData } from '../researchItemDrag';
+import { Tooltip, ExplainerButton, SurfaceNote, Term, GUIDANCE_COPY } from '../guidance';
 
 interface SurveyPaneProps {
   openProblems: OpenProblemNote[];
@@ -345,6 +346,7 @@ export function SurveyPane({
             <span className="font-mono text-[11px] font-bold tracking-[0.1em] uppercase text-ink">
               SURVEY
             </span>
+            <ExplainerButton explainerKey="survey_gate" surfaceId="survey" />
           </div>
           <span className="font-serif italic text-[15px] text-ink-muted">
             What is still open here?
@@ -360,7 +362,7 @@ export function SurveyPane({
             title="Ask the Examiner to propose groupings from your loose notes"
             className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[12px] font-sans font-medium text-ink bg-surface border border-rule rounded-[2px] hover:border-ink-muted transition-colors cursor-pointer"
           >
-            <Sparkles className="w-3.5 h-3.5 text-ink-muted" />
+            <Layers className="w-3.5 h-3.5 text-ink-muted" />
             <span>Propose clusters</span>
           </button>
 
@@ -422,13 +424,16 @@ export function SurveyPane({
                   className="w-full text-left px-2 py-1.5 rounded-[2px] hover:bg-paper text-ink transition-colors flex items-center justify-between border-t border-rule mt-0.5 pt-1.5"
                 >
                   <span>Generate Model Proposal</span>
-                  <Sparkles className="w-3 h-3 text-ink-muted" />
+                  <Layers className="w-3 h-3 text-ink-muted" />
                 </button>
               </div>
             )}
           </div>
         </div>
       </header>
+
+      {/* Dismissible Surface Purpose Note */}
+      <SurfaceNote surfaceId="survey" />
 
       {/* ─── Promoted Success Notice Banner ─────────────────────────── */}
       {promotedSuccessInfo && (
@@ -535,7 +540,7 @@ export function SurveyPane({
                     onClick={handleTriggerExaminerClustering}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-sans font-medium text-ink bg-surface border border-rule rounded-[2px] hover:border-ink-muted active:bg-paper transition-colors cursor-pointer"
                   >
-                    <Sparkles className="w-3.5 h-3.5 text-ink-muted" />
+                    <Layers className="w-3.5 h-3.5 text-ink-muted" />
                     <span>Propose clusters from my notes</span>
                   </button>
                 </div>
@@ -1297,9 +1302,12 @@ export function SurveyPane({
             {/* Header */}
             <div className="flex flex-col gap-1 pb-3 border-b border-rule">
               <div className="flex items-center justify-between">
-                <span className="font-mono text-[11px] font-bold uppercase tracking-[0.12em] text-ink">
-                  PROMOTE TO QUESTION
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-[11px] font-bold uppercase tracking-[0.12em] text-ink">
+                    PROMOTE TO QUESTION
+                  </span>
+                  <ExplainerButton explainerKey="promotion_falsification_test" surfaceId="survey" />
+                </div>
                 <button
                   onClick={() => setPromotingCandidate(null)}
                   className="text-ink-muted hover:text-ink p-1 rounded-[2px]"

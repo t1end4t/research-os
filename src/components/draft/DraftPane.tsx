@@ -22,6 +22,7 @@ import { DraftSectionEditor } from './DraftSectionEditor';
 import { DraftSupportLedger, LedgerMode } from './DraftSupportLedger';
 import { DraftDriftModal } from './DraftDriftModal';
 import { Layers, Bookmark, AlertCircle, X, Menu } from 'lucide-react';
+import { SurfaceNote } from '../../guidance';
 
 export interface DraftPaneProps {
   manuscript: DraftManuscript;
@@ -474,6 +475,9 @@ export function DraftPane({
         standingCounts={analysis.standingCounts}
         onSelectStandingFilter={handleSelectStandingFilter}
       />
+
+      {/* Dismissible Surface Purpose Note */}
+      <SurfaceNote surfaceId="draft" />
 
       {/* Mobile Drawer Toggle Bar on small screens */}
       <div className="lg:hidden flex items-center justify-between px-3 py-1.5 bg-surface border-b border-rule font-mono text-xs">

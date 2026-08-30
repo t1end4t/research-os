@@ -1,5 +1,6 @@
 import React from 'react';
 import { StatusDot } from '../ui/instrument';
+import { Tooltip, ExplainerButton, GUIDANCE_COPY } from '../../guidance';
 
 export type StandingSegment =
   | 'all'
@@ -33,34 +34,40 @@ export function StandingBar({
     label: string;
     count: number;
     colorType?: 'holds' | 'weak' | 'missing';
+    tooltipText: string;
   }> = [
     {
       id: 'holds',
       label: 'holds',
       count: counts.holds,
       colorType: 'holds',
+      tooltipText: GUIDANCE_COPY.computed.standing_holds,
     },
     {
       id: 'weak',
       label: 'weak',
       count: counts.weak,
       colorType: 'weak',
+      tooltipText: GUIDANCE_COPY.computed.standing_weak,
     },
     {
       id: 'unsupported',
       label: 'unsupported',
       count: counts.unsupported,
       colorType: 'missing',
+      tooltipText: GUIDANCE_COPY.computed.standing_unsupported,
     },
     {
       id: 'unwritten',
       label: 'reasons unwritten',
       count: counts.unwrittenReasons,
+      tooltipText: GUIDANCE_COPY.computed.standing_unwritten,
     },
     {
       id: 'open',
       label: 'open questions',
       count: counts.openQuestions,
+      tooltipText: GUIDANCE_COPY.computed.standing_open,
     },
   ];
 
@@ -84,60 +91,64 @@ export function StandingBar({
             return (
               <React.Fragment key={seg.id}>
                 {idx > 0 && <span className="text-rule font-mono text-[10px] mx-0.5">·</span>}
-                <button
-                  id={`standing-filter-${seg.id}`}
-                  onClick={() =>
-                    onSelectSegment(isSelected ? 'all' : seg.id)
-                  }
-                  title={`Filter by ${seg.label} (click to toggle)`}
-                  aria-pressed={isSelected}
-                  className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-[2px] transition-all cursor-pointer ${
-                    isSelected
-                      ? 'bg-surface border border-rule font-medium shadow-[0_1px_1px_rgba(0,0,0,0.03)]'
-                      : 'hover:bg-surface/60 border border-transparent text-ink-muted hover:text-ink'
-                  }`}
-                >
-                  {seg.colorType && (
-                    <StatusDot status={seg.colorType} size="sm" />
-                  )}
-                  <span
-                    className={`font-mono text-[12px] font-semibold ${
-                      seg.colorType === 'holds'
-                        ? 'text-holds'
-                        : seg.colorType === 'weak'
-                        ? 'text-weak'
-                        : seg.colorType === 'missing'
-                        ? 'text-missing'
-                        : isSelected
-                        ? 'text-ink'
-                        : 'text-ink-muted'
+                <Tooltip content={seg.tooltipText}>
+                  <button
+                    id={`standing-filter-${seg.id}`}
+                    onClick={() =>
+                      onSelectSegment(isSelected ? 'all' : seg.id)
+                    }
+                    aria-pressed={isSelected}
+                    className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-[2px] transition-all cursor-pointer ${
+                      isSelected
+                        ? 'bg-surface border border-rule font-medium shadow-[0_1px_1px_rgba(0,0,0,0.03)]'
+                        : 'hover:bg-surface/60 border border-transparent text-ink-muted hover:text-ink'
                     }`}
                   >
-                    {seg.count}
-                  </span>
-                  <span
-                    className={`font-sans text-[11px] ${
-                      isSelected ? 'text-ink font-medium' : 'text-ink-muted'
-                    }`}
-                  >
-                    {seg.label}
-                  </span>
-                </button>
+                    {seg.colorType && (
+                      <StatusDot status={seg.colorType} size="sm" />
+                    )}
+                    <span
+                      className={`font-mono text-[12px] font-semibold ${
+                        seg.colorType === 'holds'
+                          ? 'text-holds'
+                          : seg.colorType === 'weak'
+                          ? 'text-weak'
+                          : seg.colorType === 'missing'
+                          ? 'text-missing'
+                          : isSelected
+                          ? 'text-ink'
+                          : 'text-ink-muted'
+                      }`}
+                    >
+                      {seg.count}
+                    </span>
+                    <span
+                      className={`font-sans text-[11px] ${
+                        isSelected ? 'text-ink font-medium' : 'text-ink-muted'
+                      }`}
+                    >
+                      {seg.label}
+                    </span>
+                  </button>
+                </Tooltip>
               </React.Fragment>
             );
           })}
         </div>
       </div>
 
-      {/* Filter reset button if a segment is active */}
-      {activeSegment !== 'all' && (
-        <button
-          onClick={() => onSelectSegment('all')}
-          className="text-[11px] font-mono text-ink-muted hover:text-ink px-1.5 py-0.5 rounded-[2px] hover:bg-surface border border-rule transition-colors cursor-pointer"
-        >
-          [reset filter]
-        </button>
-      )}
+      {/* Right controls: Filter reset and Explainer */}
+      <div className="flex items-center gap-2 shrink-0">
+        {activeSegment !== 'all' && (
+          <button
+            onClick={() => onSelectSegment('all')}
+            className="text-[11px] font-mono text-ink-muted hover:text-ink px-1.5 py-0.5 rounded-[2px] hover:bg-surface border border-rule transition-colors cursor-pointer"
+          >
+            [reset filter]
+          </button>
+        )}
+        <ExplainerButton explainerKey="standing_bar" />
+      </div>
     </div>
   );
 }
