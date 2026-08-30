@@ -1,24 +1,21 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Plus,
-  Sparkles,
   X,
   ChevronDown,
-  Check,
   Pencil,
   Trash2,
-  ArrowRight,
-  Network,
-  List as ListIcon,
-  Search,
-  Copy,
   GripVertical,
   CornerDownRight,
+  Sparkles,
+  Check,
+  ArrowRight,
+  Tag,
+  AlertCircle,
+  HelpCircle,
 } from 'lucide-react';
-import { CandidateQuestion, OpenProblemNote } from '../types';
+import { CandidateQuestion, OpenProblemNote, ClusteringProposal } from '../types';
 import { setResearchItemDragData } from '../researchItemDrag';
-import { ObsidianSurveyGraph } from './survey/ObsidianSurveyGraph';
-import { SurveyGraphHUD, GraphDisplayOptions } from './survey/SurveyGraphHUD';
 
 interface SurveyPaneProps {
   openProblems: OpenProblemNote[];
@@ -31,24 +28,17 @@ interface SurveyPaneProps {
   onRemoveCandidateQuestion: (id: string) => void;
   onLinkProblemToCandidate: (candidateId: string, problemId: string) => void;
   onUnlinkProblemFromCandidate: (candidateId: string, problemId: string) => void;
-  onPromoteCandidate: (candidate: CandidateQuestion, claimText: string) => void;
+  onPromoteCandidate: (
+    candidate: CandidateQuestion,
+    claimText: string,
+    tags?: string[],
+    falsificationCondition?: string
+  ) => string | void;
   onClusterNotes: (selectedProblemIds: string[]) => void;
+  onlyMine?: boolean;
+  activeProjectTag?: string;
+  onNavigateToMap?: (questionId?: string) => void;
 }
-
-const DEFAULT_GRAPH_OPTIONS: GraphDisplayOptions = {
-  nodeScale: 1.0,
-  linkThickness: 1.5,
-  labelMode: 'all',
-  showParticles: true,
-  showStarfield: true,
-  centerGravity: 0.08,
-  repulsion: 1200,
-  linkDistance: 130,
-  isPhysicsActive: true,
-  showUnresolved: true,
-  showCandidates: true,
-  showLinkedOnly: false,
-};
 
 export function SurveyPane({
   openProblems,
@@ -63,1188 +53,1426 @@ export function SurveyPane({
   onUnlinkProblemFromCandidate,
   onPromoteCandidate,
   onClusterNotes,
+  onlyMine = false,
+  activeProjectTag = 'all',
+  onNavigateToMap,
 }: SurveyPaneProps) {
-  // View mode: 'list' (Two-column List View) or 'obsidian' (Obsidian Network Graph)
-  const [viewMode, setViewMode] = useState<'list' | 'obsidian'>('list');
+  // ─── Composer Form State ───────────────────────────────────────────
+  const [obsText, setObsText] = useState('');
+  const [obsSource, setObsSource] = useState('');
+  const obsInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Obsidian Graph & HUD state
-  const [isHUDOpen, setIsHUDOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [graphOptions, setGraphOptions] = useState<GraphDisplayOptions>(DEFAULT_GRAPH_OPTIONS);
+  // ─── Editing Note / Candidate Modals ───────────────────────────────
+  const [editingNote, setEditingNote] = useState<OpenProblemNote | null>(null);
+  const [editNoteText, setEditNoteText] = useState('');
+  const [editNoteSource, setEditNoteSource] = useState('');
 
-  // Selection & dynamic cross-highlighting state
-  const [selectedNode, setSelectedNode] = useState<{
-    type: 'problem' | 'candidate';
-    id: string;
+  const [isCreatingCandidate, setIsCreatingCandidate] = useState(false);
+  const [newCandidateWording, setNewCandidateWording] = useState('');
+  const [newCandidateSelectedNotes, setNewCandidateSelectedNotes] = useState<string[]>([]);
+
+  const [editingCandidate, setEditingCandidate] = useState<CandidateQuestion | null>(null);
+  const [editCandidateText, setEditCandidateText] = useState('');
+
+  // ─── Promotion Test Modal State ────────────────────────────────────
+  const [promotingCandidate, setPromotingCandidate] = useState<CandidateQuestion | null>(null);
+  const [promoteClaimText, setPromoteClaimText] = useState('');
+  const [boxFalsifiable, setBoxFalsifiable] = useState(false);
+  const [falsificationCondition, setFalsificationCondition] = useState('');
+  const [boxSettledInYear, setBoxSettledInYear] = useState(false);
+  const [promoteTags, setPromoteTags] = useState<string[]>([]);
+  const [newTagInput, setNewTagInput] = useState('');
+
+  // ─── Post-Promotion Feedback Banner ────────────────────────────────
+  const [promotedSuccessInfo, setPromotedSuccessInfo] = useState<{
+    questionId: string;
+    questionText: string;
   } | null>(null);
-  const [hoveredNode, setHoveredNode] = useState<{
-    type: 'problem' | 'candidate';
-    id: string;
-  } | null>(null);
-  const [flashHighlightId, setFlashHighlightId] = useState<string | null>(null);
 
-  // Filters for List View
-  const [noteFilter, setNoteFilter] = useState<'all' | 'unassigned' | 'multi'>('all');
-
-  // Drag-and-drop state
-  const [draggedNoteId, setDraggedNoteId] = useState<string | null>(null);
+  // ─── Drag and Drop ────────────────────────────────────────────────
+  const [draggedProblemId, setDraggedProblemId] = useState<string | null>(null);
   const [dragOverCandidateId, setDragOverCandidateId] = useState<string | null>(null);
 
-  // Copied feedback toast
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-
-  // Theme detection
-  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
-    if (typeof document !== 'undefined') {
-      return document.documentElement.classList.contains('dark');
-    }
-    return false;
-  });
-
-  useEffect(() => {
-    const observer = new MutationObserver(() => {
-      setIsDarkMode(document.documentElement.classList.contains('dark'));
-    });
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
-    return () => observer.disconnect();
-  }, []);
-
-  // Dropdown state for assigning candidates per note
-  const [openAssignDropdownId, setOpenAssignDropdownId] = useState<string | null>(null);
+  // ─── Assign Dropdown per note ─────────────────────────────────────
+  const [assignDropdownNoteId, setAssignDropdownNoteId] = useState<string | null>(null);
   const assignDropdownRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (assignDropdownRef.current && !assignDropdownRef.current.contains(event.target as Node)) {
-        setOpenAssignDropdownId(null);
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (assignDropdownRef.current && !assignDropdownRef.current.contains(e.target as Node)) {
+        setAssignDropdownNoteId(null);
       }
     };
-    if (openAssignDropdownId) {
-      document.addEventListener('mousedown', handleClickOutside);
+    if (assignDropdownNoteId) {
+      document.addEventListener('mousedown', handleOutsideClick);
     }
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [openAssignDropdownId]);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [assignDropdownNoteId]);
 
-  // Modals & form state
-  const [isAddingProblem, setIsAddingProblem] = useState(false);
-  const [editingProblem, setEditingProblem] = useState<OpenProblemNote | null>(null);
-  const [problemText, setProblemText] = useState('');
-  const [problemSource, setProblemSource] = useState('');
+  // ─── Reviewable Model Clustering Proposals ─────────────────────────
+  const [proposals, setProposals] = useState<ClusteringProposal[]>([
+    {
+      id: 'prop-natural-images',
+      groupName: 'Does sparse coding depend on natural image statistics?',
+      sharedObservation: 'These notes all observe that only natural images were tested.',
+      workingPhrase: 'Does sparse coding depend on natural image statistics?',
+      problemIds: ['op-1', 'op-7', 'op-11'],
+      problemSnippets: [
+        'On-device INT4 quantization degrades attention map sparsity unpredictably across transformer layers.',
+        'Weight pruning masks derived from static saliency metrics fail to predict runtime throughput on systolic arrays.',
+        'Quantized activation outlier suppression algorithms increase static SRAM overhead beyond savings.',
+      ],
+      modelId: 'cx/gpt-5.6-sol',
+    },
+  ]);
 
-  const [isAddingCandidate, setIsAddingCandidate] = useState(false);
-  const [editingCandidate, setEditingCandidate] = useState<CandidateQuestion | null>(null);
-  const [candidateText, setCandidateText] = useState('');
-  const [selectedNotesForNewCandidate, setSelectedNotesForNewCandidate] = useState<string[]>([]);
-
-  const [promotingCandidate, setPromotingCandidate] = useState<CandidateQuestion | null>(null);
-  const [promoteClaimText, setPromoteClaimText] = useState('');
-  const [box1Checked, setBox1Checked] = useState(false);
-  const [box2Checked, setBox2Checked] = useState(false);
-
-  // Derive unassigned / unresolved count
-  const getAssignedCandidateIds = (problemId: string): string[] => {
-    return candidateQuestions
-      .filter((candidate) => candidate.openProblemIds.includes(problemId))
-      .map((candidate) => candidate.id);
-  };
-
-  const linkedProblemIds = useMemo(
-    () => new Set(candidateQuestions.flatMap((candidate) => candidate.openProblemIds)),
-    [candidateQuestions]
-  );
-  const unresolvedProblems = useMemo(
-    () => openProblems.filter((problem) => !linkedProblemIds.has(problem.id)),
-    [openProblems, linkedProblemIds]
-  );
-  const isFifteenNoteStop = unresolvedProblems.length >= 15 && candidateQuestions.length < 3;
-
-  // Sorting rule for Left Column:
-  // "Sort order: all unassigned rows first, then 2 candidates, then 1 candidate. Do not sort by date or relevance."
-  const sortedNotes = useMemo(() => {
-    return [...openProblems].sort((a, b) => {
-      const countA = getAssignedCandidateIds(a.id).length;
-      const countB = getAssignedCandidateIds(b.id).length;
-
-      const rankA = countA === 0 ? 0 : countA >= 2 ? 1 : 2;
-      const rankB = countB === 0 ? 0 : countB >= 2 ? 1 : 2;
-
-      if (rankA !== rankB) return rankA - rankB;
-      if (rankA === 1 && countA !== countB) return countB - countA;
-      return 0;
-    });
-  }, [openProblems, candidateQuestions]);
-
-  // Filtered Notes based on search & filter tab
-  const filteredNotes = useMemo(() => {
-    return sortedNotes.filter((note) => {
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        const matchText = note.text.toLowerCase().includes(q);
-        const matchCitation = note.citation ? note.citation.toLowerCase().includes(q) : false;
-        if (!matchText && !matchCitation) return false;
-      }
-
-      const assignedCount = getAssignedCandidateIds(note.id).length;
-      if (noteFilter === 'unassigned') return assignedCount === 0;
-      if (noteFilter === 'multi') return assignedCount >= 2;
-      return true;
-    });
-  }, [sortedNotes, searchQuery, noteFilter, candidateQuestions]);
-
-  // Filtered Candidate Questions based on search
-  const filteredCandidates = useMemo(() => {
-    return candidateQuestions.filter((candidate) => {
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        const matchText = candidate.text.toLowerCase().includes(q);
-        const matchFindings = candidate.openProblemIds.some((pid) => {
-          const problem = openProblems.find((p) => p.id === pid);
-          return problem ? problem.text.toLowerCase().includes(q) : false;
-        });
-        if (!matchText && !matchFindings) return false;
-      }
-      return true;
-    });
-  }, [candidateQuestions, searchQuery, openProblems]);
-
-  // Selection from Obsidian Graph -> Switch to List & Scroll/Flash highlight
-  const handleSelectNodeFromGraph = (node: { type: 'problem' | 'candidate'; id: string } | null) => {
-    if (!node) return;
-    setViewMode('list');
-    setSelectedNode(node);
-    setFlashHighlightId(node.id);
-
-    setTimeout(() => {
-      const elementId = node.type === 'problem' ? `note-row-${node.id}` : `candidate-card-${node.id}`;
-      const el = document.getElementById(elementId);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
-    }, 100);
-
-    setTimeout(() => {
-      setFlashHighlightId(null);
-    }, 3200);
-  };
-
-  // Drag and drop handlers
-  const handleDragStartNote = (e: React.DragEvent, noteId: string) => {
-    setDraggedNoteId(noteId);
-    e.dataTransfer.setData('text/plain', noteId);
-    e.dataTransfer.effectAllowed = 'copyMove';
-
-    const note = openProblems.find((p) => p.id === noteId);
-    if (note) {
-      setResearchItemDragData(e.dataTransfer, {
-        id: note.id,
-        type: 'SURVEY',
-        label: note.citation ? `"${note.text}" — ${note.citation}` : note.text,
+  // ─── Note Categorization & Hard Stop Logic ────────────────────────
+  // A note belongs to at most one candidate.
+  // We map problemId -> candidate it belongs to
+  const problemToCandidateMap = useMemo(() => {
+    const map = new Map<string, CandidateQuestion>();
+    candidateQuestions.forEach((cq) => {
+      cq.openProblemIds.forEach((pid) => {
+        if (!map.has(pid)) {
+          map.set(pid, cq);
+        }
       });
+    });
+    return map;
+  }, [candidateQuestions]);
+
+  const looseNotes = useMemo(() => {
+    return openProblems.filter((p) => !problemToCandidateMap.has(p.id));
+  }, [openProblems, problemToCandidateMap]);
+
+  const clusteredNotes = useMemo(() => {
+    return openProblems.filter((p) => problemToCandidateMap.has(p.id));
+  }, [openProblems, problemToCandidateMap]);
+
+  const looseCount = looseNotes.length;
+  const clusteredCount = clusteredNotes.length;
+  const candidateCount = candidateQuestions.length;
+
+  // HARD STOP: "At 15 loose notes with fewer than 3 candidates: no new notes until three candidates exist."
+  const isHardStopActive = looseCount >= 15 && candidateCount < 3;
+
+  // Format date helper
+  const formatDate = (timestamp: number) => {
+    const d = new Date(timestamp);
+    return d.toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+    });
+  };
+
+  // ─── Note Submission Handler ───────────────────────────────────────
+  const handleSubmitNote = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (isHardStopActive) return;
+
+    const trimmedText = obsText.trim();
+    const trimmedSource = obsSource.trim();
+
+    if (!trimmedText || !trimmedSource) return;
+
+    onAddOpenProblem(trimmedText, trimmedSource);
+    setObsText('');
+    setObsSource('');
+
+    // Immediately refocus observation field for rapid sequential capture
+    if (obsInputRef.current) {
+      obsInputRef.current.focus();
     }
   };
 
-  const handleDragOverCandidate = (e: React.DragEvent, candidateId: string) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'copy';
-    if (dragOverCandidateId !== candidateId) {
-      setDragOverCandidateId(candidateId);
-    }
+  // ─── Candidate Creation Handlers ──────────────────────────────────
+  const handleOpenCreateCandidate = () => {
+    setNewCandidateWording('');
+    setNewCandidateSelectedNotes([]);
+    setIsCreatingCandidate(true);
   };
 
-  const handleDragLeaveCandidate = (e: React.DragEvent, candidateId: string) => {
-    if (dragOverCandidateId === candidateId) {
-      setDragOverCandidateId(null);
-    }
+  const handleCommitCreateCandidate = () => {
+    const trimmed = newCandidateWording.trim();
+    if (!trimmed) return;
+
+    onAddCandidateQuestion(trimmed, newCandidateSelectedNotes);
+    setIsCreatingCandidate(false);
+    setNewCandidateWording('');
+    setNewCandidateSelectedNotes([]);
   };
 
-  const handleDropOnCandidate = (e: React.DragEvent, candidateId: string) => {
-    e.preventDefault();
-    setDragOverCandidateId(null);
-    const noteId = draggedNoteId || e.dataTransfer.getData('text/plain');
-    if (noteId && candidateId) {
-      onLinkProblemToCandidate(candidateId, noteId);
-    }
-    setDraggedNoteId(null);
+  // ─── Model Proposal Actions ───────────────────────────────────────
+  const handleAcceptProposal = (proposal: ClusteringProposal) => {
+    // Per brief: "Accepting a grouping creates a candidate with those notes and opens its wording field for the user to write. Do not create the candidate with the model's phrase already committed as the user's wording."
+    setNewCandidateWording(''); // User must write their own wording
+    setNewCandidateSelectedNotes(proposal.problemIds);
+    setIsCreatingCandidate(true);
+    setProposals((prev) => prev.filter((p) => p.id !== proposal.id));
   };
 
-  // Copy Citation / Text handler
-  const handleCopyNote = (note: OpenProblemNote) => {
-    const textToCopy = note.citation ? `"${note.text}" — ${note.citation}` : note.text;
-    navigator.clipboard.writeText(textToCopy);
-    setCopiedId(note.id);
-    setTimeout(() => setCopiedId(null), 2000);
+  const handleRejectProposal = (proposalId: string) => {
+    setProposals((prev) => prev.filter((p) => p.id !== proposalId));
   };
 
-  // Form actions
-  const handleSaveProblem = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!problemText.trim()) return;
-    if (editingProblem) {
-      onUpdateOpenProblem(editingProblem.id, problemText.trim(), problemSource.trim() || undefined);
-    } else {
-      onAddOpenProblem(problemText.trim(), problemSource.trim() || undefined);
-    }
-    setProblemText('');
-    setProblemSource('');
-    setIsAddingProblem(false);
-    setEditingProblem(null);
+  const handleTriggerExaminerClustering = () => {
+    if (looseNotes.length === 0) return;
+    const sampleNotes = looseNotes.slice(0, Math.min(4, looseNotes.length));
+    const newProposal: ClusteringProposal = {
+      id: `prop-${Date.now()}`,
+      groupName: 'How do memory footprint and quantization affect transformer latency on microcontrollers?',
+      sharedObservation: 'These loose notes identify memory hierarchy bottlenecks during edge execution.',
+      workingPhrase: 'How do memory footprint and quantization affect transformer latency on microcontrollers?',
+      problemIds: sampleNotes.map((n) => n.id),
+      problemSnippets: sampleNotes.map((n) => n.text),
+      modelId: 'cx/gpt-5.6-sol',
+    };
+    setProposals((prev) => [newProposal, ...prev]);
   };
 
-  const handleOpenEditProblem = (problem: OpenProblemNote) => {
-    setEditingProblem(problem);
-    setProblemText(problem.text);
-    setProblemSource(problem.citation || '');
-    setIsAddingProblem(true);
-  };
-
-  const handleSaveCandidate = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!candidateText.trim()) return;
-    if (editingCandidate) {
-      onUpdateCandidateQuestion(editingCandidate.id, candidateText.trim());
-    } else {
-      onAddCandidateQuestion(candidateText.trim(), selectedNotesForNewCandidate);
-    }
-    setCandidateText('');
-    setSelectedNotesForNewCandidate([]);
-    setIsAddingCandidate(false);
-    setEditingCandidate(null);
-  };
-
-  const handleOpenEditCandidate = (candidate: CandidateQuestion) => {
-    setEditingCandidate(candidate);
-    setCandidateText(candidate.text);
-    setIsAddingCandidate(true);
-  };
-
-  const handleToggleCandidateLink = (candidateId: string, problemId: string) => {
-    const candidate = candidateQuestions.find((c) => c.id === candidateId);
-    if (!candidate) return;
-    if (candidate.openProblemIds.includes(problemId)) {
-      onUnlinkProblemFromCandidate(candidateId, problemId);
-    } else {
-      onLinkProblemToCandidate(candidateId, problemId);
-    }
-  };
-
-  const handleOpenPromote = (candidate: CandidateQuestion) => {
+  // ─── Promotion Test Modal Handlers ────────────────────────────────
+  const handleOpenPromoteModal = (candidate: CandidateQuestion) => {
     setPromotingCandidate(candidate);
     setPromoteClaimText('');
-    setBox1Checked(false);
-    setBox2Checked(false);
+    setBoxFalsifiable(false);
+    setFalsificationCondition('');
+    setBoxSettledInYear(false);
+    const initialTags = activeProjectTag && activeProjectTag !== 'all' ? [activeProjectTag] : ['tinyml'];
+    setPromoteTags(initialTags);
+    setNewTagInput('');
   };
 
-  const handleConfirmPromote = () => {
-    if (!promotingCandidate || !promoteClaimText.trim() || !box1Checked || !box2Checked) return;
-    onPromoteCandidate(promotingCandidate, promoteClaimText.trim());
+  const handleAddTag = () => {
+    const trimmed = newTagInput.trim().toLowerCase().replace(/\s+/g, '-');
+    if (trimmed && !promoteTags.includes(trimmed)) {
+      setPromoteTags([...promoteTags, trimmed]);
+      setNewTagInput('');
+    }
+  };
+
+  const handleRemoveTag = (tagToRemove: string) => {
+    setPromoteTags(promoteTags.filter((t) => t !== tagToRemove));
+  };
+
+  const isPromoteValid =
+    promoteClaimText.trim().length > 0 &&
+    boxFalsifiable &&
+    falsificationCondition.trim().length > 0 &&
+    boxSettledInYear;
+
+  const getMissingPromotionReason = (): string => {
+    if (!promoteClaimText.trim()) return 'Write a claim that answers it';
+    if (!boxFalsifiable) return 'Confirm claim could be false';
+    if (!falsificationCondition.trim()) return 'Specify what would show claim false';
+    if (!boxSettledInYear) return 'Confirm settled within a year';
+    return '';
+  };
+
+  const handleCommitPromotion = () => {
+    if (!promotingCandidate || !isPromoteValid) return;
+
+    const newQId = onPromoteCandidate(
+      promotingCandidate,
+      promoteClaimText.trim(),
+      promoteTags,
+      falsificationCondition.trim()
+    );
+
+    const questionText = promotingCandidate.text;
+    const finalId = typeof newQId === 'string' ? newQId : `q-${Date.now()}`;
+
+    setPromotedSuccessInfo({
+      questionId: finalId,
+      questionText,
+    });
+
     setPromotingCandidate(null);
-    setSelectedNode(null);
   };
 
-  // Cross-column connection helpers
-  const activeHoverOrSelectProblemId =
-    (hoveredNode?.type === 'problem' && hoveredNode.id) ||
-    (selectedNode?.type === 'problem' && selectedNode.id) ||
-    null;
+  // ─── Demonstration State Presets ──────────────────────────────────
+  const [isDemoMenuOpen, setIsDemoMenuOpen] = useState(false);
 
-  const activeHoverOrSelectCandidateId =
-    (hoveredNode?.type === 'candidate' && hoveredNode.id) ||
-    (selectedNode?.type === 'candidate' && selectedNode.id) ||
-    null;
-
-  const connectedCandidateIds = useMemo(() => {
-    if (!activeHoverOrSelectProblemId) return new Set<string>();
-    return new Set(getAssignedCandidateIds(activeHoverOrSelectProblemId));
-  }, [activeHoverOrSelectProblemId, candidateQuestions]);
-
-  const connectedProblemIds = useMemo(() => {
-    if (!activeHoverOrSelectCandidateId) return new Set<string>();
-    const cand = candidateQuestions.find((c) => c.id === activeHoverOrSelectCandidateId);
-    return new Set(cand ? cand.openProblemIds : []);
-  }, [activeHoverOrSelectCandidateId, candidateQuestions]);
+  const handleApplyPreset = (preset: 'default' | '13loose' | '15sealed' | '15cleared') => {
+    setIsDemoMenuOpen(false);
+    if (preset === '13loose') {
+      // 13 loose notes, 2 candidates
+      while (candidateQuestions.length > 2) {
+        onRemoveCandidateQuestion(candidateQuestions[candidateQuestions.length - 1].id);
+      }
+      const needed = 13 - looseCount;
+      if (needed > 0) {
+        for (let i = 0; i < needed; i++) {
+          onAddOpenProblem(
+            `Demonstration note #${i + 1}: Unresolved timing jitter in low-power oscillator wakes.`,
+            'Demo Setup 2024'
+          );
+        }
+      }
+    } else if (preset === '15sealed') {
+      // 15 loose notes, 2 candidates -> Seals composer
+      while (candidateQuestions.length > 2) {
+        onRemoveCandidateQuestion(candidateQuestions[candidateQuestions.length - 1].id);
+      }
+      const needed = 15 - looseCount;
+      if (needed > 0) {
+        for (let i = 0; i < needed; i++) {
+          onAddOpenProblem(
+            `Demonstration note #${i + 1}: Memory access contention on scratchpad SRAM.`,
+            'Demo Setup 2024'
+          );
+        }
+      }
+    } else if (preset === '15cleared') {
+      // 15 loose notes, 3 candidates -> Stop cleared!
+      if (candidateQuestions.length < 3) {
+        onAddCandidateQuestion('Does scratchpad contention bound multi-core inference throughput?', []);
+      }
+    }
+  };
 
   return (
     <div
       id="survey-pane-container"
-      className="relative flex h-full w-full flex-col overflow-hidden bg-white dark:bg-[#121212] select-none"
+      className="h-full w-full flex flex-col bg-paper text-ink overflow-hidden select-text"
     >
-      {/* 1. TOP HEADER BAR: SURVEY BRAND, VIEW TOGGLE, ACTION CONTROLS */}
+      {/* ─── Top Survey Header ──────────────────────────────────────── */}
       <header
-        id="survey-header-bar"
-        className="flex h-11 shrink-0 items-center justify-between gap-3 border-b border-[#ececec] dark:border-[#262626] bg-white dark:bg-[#141414] px-4 z-20"
+        id="survey-header"
+        className="shrink-0 px-6 py-3.5 border-b border-rule bg-paper flex items-center justify-between gap-4 z-10"
       >
-        {/* Left: Section label `SURVEY` & Live count */}
-        <div className="flex items-center gap-3 overflow-hidden whitespace-nowrap">
+        <div className="flex items-baseline gap-4">
           <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-[#6B4FBB] dark:bg-[#BCA8F7]" />
-            <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-stone-900 dark:text-stone-100">
+            <span className="font-mono text-[11px] font-bold tracking-[0.1em] uppercase text-ink">
               SURVEY
             </span>
           </div>
-          <span className="font-mono text-[11px] text-stone-500 dark:text-stone-400">
-            {openProblems.length} {openProblems.length === 1 ? 'finding' : 'findings'} · {candidateQuestions.length}{' '}
-            {candidateQuestions.length === 1 ? 'candidate' : 'candidates'}
-          </span>
-          <span className="font-mono text-[11px] text-stone-400 dark:text-stone-500 hidden xl:inline truncate pl-2 border-l border-stone-200 dark:border-[#262626]">
-            {unresolvedProblems.length < 15
-              ? `${15 - unresolvedProblems.length} unassigned findings remaining before 3 candidates required`
-              : 'Adding notes stopped until 3 candidates exist'}
+          <span className="font-serif italic text-[15px] text-ink-muted">
+            What is still open here?
           </span>
         </div>
 
-        {/* Right: View switcher (List vs Obsidian Graph), Cluster, + Note, + Candidate */}
-        <div className="flex items-center gap-2 shrink-0">
-          {/* View Switcher */}
-          <div className="flex items-center p-0.5 rounded-[6px] bg-stone-100 dark:bg-[#1f1f1f] border border-stone-200 dark:border-[#2a2a2a]">
+        {/* Header Right Actions */}
+        <div className="flex items-center gap-2.5">
+          {/* Propose clusters button */}
+          <button
+            id="btn-propose-clusters-header"
+            onClick={handleTriggerExaminerClustering}
+            title="Ask the Examiner to propose groupings from your loose notes"
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[12px] font-sans font-medium text-ink bg-surface border border-rule rounded-[2px] hover:border-ink-muted transition-colors cursor-pointer"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-ink-muted" />
+            <span>Propose clusters</span>
+          </button>
+
+          {/* + Candidate Question button */}
+          <button
+            id="btn-add-candidate-header"
+            onClick={handleOpenCreateCandidate}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[12px] font-sans font-medium text-ink bg-surface border border-rule rounded-[2px] hover:border-ink-muted transition-colors cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Candidate question</span>
+          </button>
+
+          {/* Demonstration States Dropdown for testing */}
+          <div className="relative">
             <button
-              id="survey-view-list-btn"
-              type="button"
-              onClick={() => setViewMode('list')}
-              title="Two-column Dynamic List View"
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] text-xs font-medium transition-all cursor-pointer ${
-                viewMode === 'list'
-                  ? 'bg-white dark:bg-[#2c2c2c] text-stone-900 dark:text-stone-100 shadow-2xs'
-                  : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-100'
-              }`}
+              id="btn-demo-states-menu"
+              onClick={() => setIsDemoMenuOpen(!isDemoMenuOpen)}
+              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-mono text-ink-muted hover:text-ink bg-surface/70 border border-rule rounded-[2px] hover:border-ink-muted transition-colors cursor-pointer"
+              title="Quickly view required testing states"
             >
-              <ListIcon className="w-3.5 h-3.5" />
-              <span>List</span>
+              <span>State test presets</span>
+              <ChevronDown className="w-3 h-3" />
             </button>
-            <button
-              id="survey-view-obsidian-btn"
-              type="button"
-              onClick={() => setViewMode('obsidian')}
-              title="Obsidian Network Graph"
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] text-xs font-medium transition-all cursor-pointer ${
-                viewMode === 'obsidian'
-                  ? 'bg-white dark:bg-[#2c2c2c] text-stone-900 dark:text-stone-100 shadow-2xs'
-                  : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-100'
-              }`}
-            >
-              <Network className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
-              <span>Obsidian Graph</span>
-            </button>
+
+            {isDemoMenuOpen && (
+              <div
+                className="absolute right-0 mt-1 w-64 bg-surface border border-rule shadow-lg rounded-[2px] p-1.5 z-50 flex flex-col gap-1 text-[12px] font-sans"
+              >
+                <div className="px-2 py-1 text-[10px] font-mono uppercase tracking-wider text-ink-muted border-b border-rule">
+                  Test & Verification States
+                </div>
+                <button
+                  onClick={() => handleApplyPreset('13loose')}
+                  className="w-full text-left px-2 py-1.5 rounded-[2px] hover:bg-paper text-ink transition-colors flex items-center justify-between"
+                >
+                  <span>13 loose · 2 candidates</span>
+                  <span className="font-mono text-[10px] text-ink-muted">Approaching limit</span>
+                </button>
+                <button
+                  onClick={() => handleApplyPreset('15sealed')}
+                  className="w-full text-left px-2 py-1.5 rounded-[2px] hover:bg-paper text-ink transition-colors flex items-center justify-between"
+                >
+                  <span>15 loose · 2 candidates</span>
+                  <span className="font-mono text-[10px] text-missing font-bold">Sealed Stop</span>
+                </button>
+                <button
+                  onClick={() => handleApplyPreset('15cleared')}
+                  className="w-full text-left px-2 py-1.5 rounded-[2px] hover:bg-paper text-ink transition-colors flex items-center justify-between"
+                >
+                  <span>15 loose · 3 candidates</span>
+                  <span className="font-mono text-[10px] text-holds font-bold">Stop Cleared</span>
+                </button>
+                <button
+                  onClick={() => {
+                    handleTriggerExaminerClustering();
+                    setIsDemoMenuOpen(false);
+                  }}
+                  className="w-full text-left px-2 py-1.5 rounded-[2px] hover:bg-paper text-ink transition-colors flex items-center justify-between border-t border-rule mt-0.5 pt-1.5"
+                >
+                  <span>Generate Model Proposal</span>
+                  <Sparkles className="w-3 h-3 text-ink-muted" />
+                </button>
+              </div>
+            )}
           </div>
-
-          <div className="h-4 w-px bg-stone-200 dark:border-[#262626] mx-0.5" />
-
-          {/* Cluster button */}
-          <button
-            id="survey-cluster-btn"
-            type="button"
-            onClick={() => onClusterNotes(unresolvedProblems.map((p) => p.id))}
-            disabled={unresolvedProblems.length < 3}
-            title={
-              unresolvedProblems.length < 3
-                ? 'Add at least 3 unassigned notes to cluster'
-                : 'Cluster unassigned open problems'
-            }
-            className="inline-flex items-center gap-1.5 rounded-[5px] border border-stone-200 dark:border-[#2e2e2e] bg-white dark:bg-[#1c1c1c] px-2.5 py-1 text-xs font-mono text-stone-700 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-[#252525] disabled:opacity-40 transition-colors cursor-pointer"
-          >
-            <Sparkles className="h-3.5 w-3.5 text-amber-500" />
-            <span className="hidden sm:inline">Cluster</span>
-          </button>
-
-          {/* + Note Button */}
-          <button
-            id="survey-add-note-btn"
-            type="button"
-            disabled={isFifteenNoteStop}
-            onClick={() => {
-              setEditingProblem(null);
-              setProblemText('');
-              setProblemSource('');
-              setIsAddingProblem(true);
-            }}
-            title={
-              isFifteenNoteStop
-                ? 'Limit reached: 15 unassigned notes without 3 candidates'
-                : 'Add a new open problem finding note'
-            }
-            className="inline-flex items-center gap-1 rounded-[5px] border border-stone-200 dark:border-[#2e2e2e] bg-white dark:bg-[#1c1c1c] px-2.5 py-1 text-xs font-mono text-stone-700 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-[#252525] disabled:opacity-40 transition-colors cursor-pointer"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            <span>Note</span>
-          </button>
-
-          {/* + Candidate Button */}
-          <button
-            id="survey-add-candidate-btn"
-            type="button"
-            onClick={() => {
-              setEditingCandidate(null);
-              setCandidateText('');
-              setSelectedNotesForNewCandidate([]);
-              setIsAddingCandidate(true);
-            }}
-            title="Add a new candidate question"
-            className="inline-flex items-center gap-1 rounded-[5px] border border-stone-900 dark:border-white bg-stone-900 dark:bg-white px-2.5 py-1 text-xs font-mono font-medium text-white dark:text-stone-900 hover:opacity-90 transition-colors cursor-pointer"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            <span>Candidate</span>
-          </button>
         </div>
       </header>
 
-      {/* 2. DYNAMIC SEARCH BAR */}
-      <div className="h-9 border-b border-[#ececec] dark:border-[#262626] bg-stone-50/50 dark:bg-[#161616] px-4 flex items-center justify-between gap-3 shrink-0 select-none z-10">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Filter findings & candidates..."
-            className="w-full pl-8 pr-7 py-0.5 text-xs bg-white dark:bg-[#1e1e1e] border border-stone-200 dark:border-[#2a2a2a] rounded-[4px] text-stone-900 dark:text-stone-100 placeholder:text-stone-400 focus:outline-none focus:border-stone-400"
-          />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 cursor-pointer"
-            >
-              <X className="w-3 h-3" />
-            </button>
-          )}
-        </div>
-
-        <div className="flex items-center gap-2 font-mono text-[11px] text-stone-400 dark:text-stone-500">
-          <span>Candidates:</span>
-          <div className="flex items-center gap-1">
-            {[0, 1, 2].map((idx) => {
-              const filled = candidateQuestions.length > idx;
-              return (
-                <div
-                  key={idx}
-                  className={`w-2 h-2 rounded-full border transition-all ${
-                    filled
-                      ? 'bg-purple-600 border-purple-600 dark:bg-purple-400 dark:border-purple-400'
-                      : 'bg-transparent border-stone-300 dark:border-stone-700'
-                  }`}
-                  title={`Candidate ${idx + 1} / 3`}
-                />
-              );
-            })}
+      {/* ─── Promoted Success Notice Banner ─────────────────────────── */}
+      {promotedSuccessInfo && (
+        <div
+          id="promoted-success-banner"
+          className="shrink-0 px-6 py-2.5 bg-[#EEF5F0] dark:bg-[#1A2E22] border-b border-holds/40 flex items-center justify-between text-xs"
+        >
+          <div className="flex items-center gap-2 text-ink">
+            <span className="font-mono font-bold text-holds uppercase tracking-wider text-[11px]">
+              ✓ PROMOTED TO QUESTION
+            </span>
+            <span className="font-serif italic text-[14px]">
+              "{promotedSuccessInfo.questionText}"
+            </span>
+            <span className="text-ink-muted text-[11px] font-sans">
+              (Unwritten reason registered on Map)
+            </span>
           </div>
-          <span>({candidateQuestions.length}/3)</span>
-        </div>
-      </div>
 
-      {/* 3. MAIN CONTENT: TWO-COLUMN LIST OR OBSIDIAN GRAPH */}
-      <div className="relative flex-1 w-full h-full overflow-hidden">
-        {/* VIEW 1: DYNAMIC TWO-COLUMN LIST VIEW */}
-        {viewMode === 'list' && (
-          <div
-            id="survey-two-columns-layout"
-            className="grid grid-cols-1 md:grid-cols-2 h-full w-full divide-y md:divide-y-0 md:divide-x divide-[#ececec] dark:divide-[#262626] overflow-hidden bg-white dark:bg-[#121212]"
-          >
-            {/* === LEFT COLUMN: OPEN PROBLEMS === */}
-            <div
-              id="survey-left-column"
-              className="flex flex-col h-full overflow-hidden bg-white dark:bg-[#141414]"
-            >
-              <div className="h-9 flex items-center justify-between px-4 border-b border-[#ececec] dark:border-[#262626] bg-white dark:bg-[#141414]">
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => setNoteFilter('all')}
-                    className={`px-2 py-0.5 rounded-[4px] font-mono text-[10px] cursor-pointer transition-colors ${
-                      noteFilter === 'all'
-                        ? 'bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 font-medium'
-                        : 'text-stone-500 hover:text-stone-900 dark:hover:text-stone-100'
-                    }`}
-                  >
-                    All ({openProblems.length})
-                  </button>
-                  <button
-                    onClick={() => setNoteFilter('unassigned')}
-                    className={`px-2 py-0.5 rounded-[4px] font-mono text-[10px] cursor-pointer transition-colors ${
-                      noteFilter === 'unassigned'
-                        ? 'bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 font-medium'
-                        : 'text-stone-500 hover:text-stone-900 dark:hover:text-stone-100'
-                    }`}
-                  >
-                    Unassigned ({unresolvedProblems.length})
-                  </button>
-                  <button
-                    onClick={() => setNoteFilter('multi')}
-                    className={`px-2 py-0.5 rounded-[4px] font-mono text-[10px] cursor-pointer transition-colors ${
-                      noteFilter === 'multi'
-                        ? 'bg-amber-600 text-white font-medium'
-                        : 'text-amber-700 dark:text-amber-400 hover:underline'
-                    }`}
-                  >
-                    Multi ({openProblems.filter((p) => getAssignedCandidateIds(p.id).length >= 2).length})
-                  </button>
-                </div>
-
-                <span className="font-mono text-[10px] text-stone-400 dark:text-stone-500">
-                  {filteredNotes.length} notes
-                </span>
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-4 space-y-2.5">
-                {filteredNotes.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center p-8 border border-dashed border-stone-200 dark:border-[#262626] rounded-[6px] text-center space-y-2">
-                    <p className="font-mono text-xs text-stone-400 dark:text-stone-500">
-                      {searchQuery
-                        ? `No findings matched "${searchQuery}".`
-                        : 'No open problems yet. Add loose notes: what is still open here?'}
-                    </p>
-                  </div>
-                ) : (
-                  filteredNotes.map((note) => {
-                    const assignedCandidateIds = getAssignedCandidateIds(note.id);
-                    const isDropdownOpen = openAssignDropdownId === note.id;
-                    const isSelected = selectedNode?.type === 'problem' && selectedNode.id === note.id;
-                    const isConnectedToActiveCandidate = connectedProblemIds.has(note.id);
-                    const isFlash = flashHighlightId === note.id;
-
-                    const isDimmed = activeHoverOrSelectCandidateId && !isConnectedToActiveCandidate;
-
-                    return (
-                      <div
-                        key={note.id}
-                        id={`note-row-${note.id}`}
-                        draggable
-                        onDragStart={(e) => handleDragStartNote(e, note.id)}
-                        onMouseEnter={() => setHoveredNode({ type: 'problem', id: note.id })}
-                        onMouseLeave={() => setHoveredNode(null)}
-                        onClick={() => {
-                          setSelectedNode(
-                            selectedNode?.id === note.id ? null : { type: 'problem', id: note.id }
-                          );
-                        }}
-                        className={`group relative w-full rounded-[8px] border p-3 flex flex-col gap-2 transition-all cursor-pointer ${
-                          isDimmed ? 'opacity-30 scale-[0.99]' : 'opacity-100'
-                        } ${
-                          isFlash
-                            ? 'ring-2 ring-amber-500 dark:ring-amber-400 bg-amber-50/50 dark:bg-amber-950/30 border-amber-400'
-                            : isSelected
-                            ? 'border-2 border-[#ffb000] ring-1 ring-[#ffb000] bg-white dark:bg-[#1c1c1c]'
-                            : isConnectedToActiveCandidate
-                            ? 'border-[#6B4FBB] dark:border-[#BCA8F7] bg-[#F5F2FF]/60 dark:bg-[#6B4FBB]/15'
-                            : 'border-stone-200 dark:border-[#262626] bg-white dark:bg-[#181818] hover:border-stone-300 dark:hover:border-[#383838]'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <div
-                              title="Drag note to a Candidate Question"
-                              className="opacity-40 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-stone-400"
-                            >
-                              <GripVertical className="w-3.5 h-3.5" />
-                            </div>
-
-                            {assignedCandidateIds.length === 0 ? (
-                              <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-mono border border-stone-200 dark:border-stone-800 text-stone-400 rounded bg-stone-50/50 dark:bg-stone-900/40">
-                                unassigned
-                              </span>
-                            ) : assignedCandidateIds.length === 1 ? (
-                              <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-mono border border-[#6B4FBB]/30 text-[#6B4FBB] dark:text-[#BCA8F7] rounded bg-[#F5F2FF] dark:bg-[#6B4FBB]/20">
-                                1 candidate
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-mono font-medium border border-amber-400 bg-amber-50 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300 rounded">
-                                {assignedCandidateIds.length} candidates
-                              </span>
-                            )}
-
-                            {isConnectedToActiveCandidate && (
-                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-mono text-purple-700 dark:text-purple-300 bg-purple-100/70 dark:bg-purple-900/40 border border-purple-300 dark:border-purple-700 rounded">
-                                <CornerDownRight className="w-2.5 h-2.5" />
-                                <span>assigned to selected</span>
-                              </span>
-                            )}
-                          </div>
-
-                          <div
-                            className="flex items-center gap-1 shrink-0"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <button
-                              type="button"
-                              onClick={() => handleCopyNote(note)}
-                              className="p-1 text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 rounded cursor-pointer"
-                              title="Copy citation"
-                            >
-                              {copiedId === note.id ? (
-                                <Check className="w-3 h-3 text-emerald-500" />
-                              ) : (
-                                <Copy className="w-3 h-3" />
-                              )}
-                            </button>
-
-                            {/* Assign Dropdown */}
-                            <div className="relative">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setOpenAssignDropdownId(isDropdownOpen ? null : note.id)
-                                }
-                                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-mono border border-stone-200 dark:border-[#2c2c2c] rounded bg-stone-50 dark:bg-[#1a1a1a] text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-[#252525] cursor-pointer"
-                              >
-                                <span>Assign</span>
-                                <ChevronDown className="w-2.5 h-2.5 text-stone-400" />
-                              </button>
-
-                              {isDropdownOpen && (
-                                <div
-                                  ref={assignDropdownRef}
-                                  className="absolute right-0 top-full mt-1 w-64 z-30 rounded-[6px] border border-stone-200 dark:border-[#2e2e2e] bg-white dark:bg-[#1c1c1c] p-2 space-y-1 shadow-xl"
-                                >
-                                  <div className="font-mono text-[9px] uppercase tracking-wider text-stone-400 pb-1 border-b border-stone-100 dark:border-[#262626]">
-                                    Assign to Candidate
-                                  </div>
-                                  {candidateQuestions.length === 0 ? (
-                                    <div className="p-2 text-xs text-stone-400 font-mono">
-                                      No candidate questions yet
-                                    </div>
-                                  ) : (
-                                    <div className="max-h-48 overflow-y-auto space-y-1 py-1">
-                                      {candidateQuestions.map((candidate) => {
-                                        const isAssigned = candidate.openProblemIds.includes(note.id);
-                                        return (
-                                          <button
-                                            key={candidate.id}
-                                            type="button"
-                                            onClick={() =>
-                                              handleToggleCandidateLink(candidate.id, note.id)
-                                            }
-                                            className="w-full flex items-start gap-2 p-1.5 rounded hover:bg-stone-50 dark:hover:bg-[#222222] text-left cursor-pointer"
-                                          >
-                                            <div
-                                              className={`mt-0.5 w-3 h-3 rounded-[2px] border flex items-center justify-center shrink-0 ${
-                                                isAssigned
-                                                  ? 'bg-stone-900 dark:bg-stone-100 border-stone-900 dark:border-stone-100 text-white dark:text-stone-900'
-                                                  : 'border-stone-300 dark:border-stone-600 bg-transparent'
-                                              }`}
-                                            >
-                                              {isAssigned && <Check className="w-2 h-2 stroke-[3]" />}
-                                            </div>
-                                            <span className="text-xs text-stone-800 dark:text-stone-200 leading-snug line-clamp-2">
-                                              {candidate.text}
-                                            </span>
-                                          </button>
-                                        );
-                                      })}
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={() => handleOpenEditProblem(note)}
-                              className="p-1 text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 rounded cursor-pointer"
-                              title="Edit note"
-                            >
-                              <Pencil className="w-3 h-3" />
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => onRemoveOpenProblem(note.id)}
-                              className="p-1 text-stone-400 hover:text-rose-500 rounded cursor-pointer"
-                              title="Delete note"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="text-[13px] leading-relaxed text-stone-900 dark:text-stone-100 font-normal">
-                          {note.text}
-                        </div>
-
-                        {note.citation && (
-                          <div className="font-mono text-[11px] text-stone-400 dark:text-stone-500 pt-0.5 border-t border-stone-100 dark:border-[#222222]">
-                            {note.citation}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-
-            {/* === RIGHT COLUMN: CANDIDATE QUESTIONS === */}
-            <div
-              id="survey-right-column"
-              className="flex flex-col h-full overflow-hidden bg-[#fbfbfb] dark:bg-[#161616]"
-            >
-              <div className="h-9 flex items-center justify-between px-4 border-b border-[#ececec] dark:border-[#262626] bg-[#fbfbfb] dark:bg-[#161616]">
-                <div className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#2C5EA8] dark:bg-[#7DB4F8]" />
-                  <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-[#2C5EA8] dark:text-[#7DB4F8]">
-                    Candidate Questions
-                  </span>
-                </div>
-                <span className="font-mono text-[10px] text-stone-400 dark:text-stone-500">
-                  {filteredCandidates.length} candidates
-                </span>
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-4 space-y-3.5">
-                {filteredCandidates.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center p-8 border border-dashed border-stone-200 dark:border-[#262626] rounded-[6px] text-center space-y-2">
-                    <p className="font-mono text-xs text-stone-400 dark:text-stone-500">
-                      {searchQuery
-                        ? `No candidate questions matched "${searchQuery}".`
-                        : 'No candidate questions yet. Group notes that seem to ask the same thing.'}
-                    </p>
-                  </div>
-                ) : (
-                  filteredCandidates.map((candidate) => {
-                    const assignedFindings = candidate.openProblemIds
-                      .map((id) => openProblems.find((p) => p.id === id))
-                      .filter((p): p is OpenProblemNote => Boolean(p));
-
-                    const isSelected = selectedNode?.type === 'candidate' && selectedNode.id === candidate.id;
-                    const isConnectedToActiveNote = connectedCandidateIds.has(candidate.id);
-                    const isDragOver = dragOverCandidateId === candidate.id;
-                    const isFlash = flashHighlightId === candidate.id;
-
-                    const isDimmed = activeHoverOrSelectProblemId && !isConnectedToActiveNote;
-
-                    return (
-                      <div
-                        key={candidate.id}
-                        id={`candidate-card-${candidate.id}`}
-                        draggable
-                        onDragStart={(e) => {
-                          setResearchItemDragData(e.dataTransfer, {
-                            id: candidate.id,
-                            type: 'SURVEY',
-                            label: candidate.text,
-                          });
-                        }}
-                        onDragOver={(e) => handleDragOverCandidate(e, candidate.id)}
-                        onDragLeave={(e) => handleDragLeaveCandidate(e, candidate.id)}
-                        onDrop={(e) => handleDropOnCandidate(e, candidate.id)}
-                        onMouseEnter={() => setHoveredNode({ type: 'candidate', id: candidate.id })}
-                        onMouseLeave={() => setHoveredNode(null)}
-                        onClick={() => {
-                          setSelectedNode(
-                            selectedNode?.id === candidate.id ? null : { type: 'candidate', id: candidate.id }
-                          );
-                        }}
-                        className={`group/cand relative rounded-[8px] p-4 border transition-all cursor-pointer ${
-                          isDimmed ? 'opacity-30 scale-[0.99]' : 'opacity-100'
-                        } ${
-                          isDragOver
-                            ? 'border-2 border-dashed border-[#2C5EA8] dark:border-[#7DB4F8] bg-blue-50/40 dark:bg-blue-950/20'
-                            : isFlash
-                            ? 'ring-2 ring-amber-500 dark:ring-amber-400 bg-amber-50/50 dark:bg-amber-950/30 border-amber-400'
-                            : isSelected
-                            ? 'border-2 border-[#ffb000] ring-1 ring-[#ffb000] bg-white dark:bg-[#1c1c1c]'
-                            : isConnectedToActiveNote
-                            ? 'border-[#2C5EA8] dark:border-[#7DB4F8] bg-[#F0F6FF]/60 dark:bg-[#2C5EA8]/15'
-                            : 'border-stone-200 dark:border-[#2a2a2a] bg-white dark:bg-[#181818] hover:border-stone-300 dark:hover:border-[#383838]'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-3 mb-2.5">
-                          <div className="flex items-start gap-1.5 flex-1 min-w-0">
-                            <div
-                              title="Drag candidate to Assistant panel"
-                              className="opacity-40 group-hover/cand:opacity-100 cursor-grab active:cursor-grabbing text-stone-400 mt-0.5"
-                            >
-                              <GripVertical className="w-3.5 h-3.5" />
-                            </div>
-                            <h3 className="text-[14px] font-medium text-stone-900 dark:text-stone-100 leading-snug flex-1">
-                              {candidate.text}
-                            </h3>
-                          </div>
-
-                          <div
-                            className="flex items-center gap-1 shrink-0"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <button
-                              type="button"
-                              onClick={() => handleOpenPromote(candidate)}
-                              className="inline-flex items-center gap-1 px-2 py-1 text-xs font-mono font-medium rounded border border-stone-300 dark:border-[#3a3a3a] bg-stone-50 dark:bg-[#222222] text-stone-800 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-[#2c2c2c] transition-colors"
-                            >
-                              <span>Promote</span>
-                              <ArrowRight className="w-3 h-3" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleOpenEditCandidate(candidate)}
-                              className="p-1 text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 rounded"
-                              title="Edit question"
-                            >
-                              <Pencil className="w-3 h-3" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => onRemoveCandidateQuestion(candidate.id)}
-                              className="p-1 text-stone-400 hover:text-rose-500 rounded"
-                              title="Delete candidate"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Grouped findings */}
-                        <div className="space-y-1.5 pt-2 border-t border-stone-100 dark:border-[#222222]">
-                          <div className="text-[10px] font-mono font-bold uppercase tracking-wider text-stone-400 dark:text-stone-500">
-                            Findings ({assignedFindings.length})
-                          </div>
-                          {assignedFindings.length === 0 ? (
-                            <p className="text-xs font-mono text-stone-400 dark:text-stone-600 italic py-0.5">
-                              Drop notes here to link
-                            </p>
-                          ) : (
-                            assignedFindings.map((finding) => (
-                              <div
-                                key={finding.id}
-                                draggable
-                                onDragStart={(e) => {
-                                  e.stopPropagation();
-                                  handleDragStartNote(e, finding.id);
-                                }}
-                                className="flex items-start justify-between gap-2 p-2 rounded bg-stone-50 dark:bg-[#141414] border border-stone-200/60 dark:border-[#222222] text-xs group/item cursor-grab active:cursor-grabbing"
-                              >
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-stone-800 dark:text-stone-200 leading-snug">
-                                    {finding.text}
-                                  </p>
-                                  {finding.citation && (
-                                    <span className="font-mono text-[10px] text-stone-400 dark:text-stone-500 mt-0.5 block truncate">
-                                      {finding.citation}
-                                    </span>
-                                  )}
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    onUnlinkProblemFromCandidate(candidate.id, finding.id);
-                                  }}
-                                  className="opacity-0 group-hover/item:opacity-100 p-0.5 text-stone-400 hover:text-rose-500 rounded transition-opacity"
-                                  title="Unlink finding"
-                                >
-                                  <X className="w-3 h-3" />
-                                </button>
-                              </div>
-                            ))
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* VIEW 2: OBSIDIAN NETWORK GRAPH CANVAS */}
-        {viewMode === 'obsidian' && (
-          <div className="relative w-full h-full">
-            {/* Interactive Obsidian HUD */}
-            <SurveyGraphHUD
-              isOpen={isHUDOpen}
-              onToggleOpen={() => setIsHUDOpen(!isHUDOpen)}
-              searchQuery={searchQuery}
-              onSearchChange={setSearchQuery}
-              options={graphOptions}
-              onOptionsChange={setGraphOptions}
-              onResetForces={() => {
-                setGraphOptions((prev) => ({
-                  ...prev,
-                  repulsion: 1200,
-                  linkDistance: 130,
-                  centerGravity: 0.08,
-                }));
-              }}
-              totalNotes={openProblems.length}
-              candidateCount={candidateQuestions.length}
-              unresolvedCount={unresolvedProblems.length}
-            />
-
-            {/* Obsidian 2D Canvas */}
-            <ObsidianSurveyGraph
-              openProblems={openProblems}
-              candidateQuestions={candidateQuestions}
-              selectedNodeId={selectedNode ? selectedNode.id : null}
-              onSelectNode={handleSelectNodeFromGraph}
-              onLinkProblemToCandidate={onLinkProblemToCandidate}
-              onQuickAddProblem={() => {
-                setEditingProblem(null);
-                setProblemText('');
-                setProblemSource('');
-                setIsAddingProblem(true);
-              }}
-              searchQuery={searchQuery}
-              options={graphOptions}
-              onOptionsChange={setGraphOptions}
-              isDarkMode={isDarkMode}
-            />
-          </div>
-        )}
-      </div>
-
-      {/* ========================================================= */}
-      {/* MODAL: ADD / EDIT OPEN PROBLEM                            */}
-      {/* ========================================================= */}
-      {isAddingProblem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
-          <div className="w-full max-w-lg rounded-[8px] bg-white dark:bg-[#1c1c1c] border border-stone-200 dark:border-[#2e2e2e] p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-stone-100 dark:border-[#262626]">
-              <div className="flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#6B4FBB] dark:bg-[#BCA8F7]" />
-                <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-stone-900 dark:text-stone-100">
-                  {editingProblem ? 'Edit Open Problem' : 'New Open Problem'}
-                </h3>
-              </div>
+          <div className="flex items-center gap-3">
+            {onNavigateToMap && (
               <button
-                type="button"
-                onClick={() => setIsAddingProblem(false)}
-                className="text-stone-400 hover:text-stone-700 dark:hover:text-stone-200"
+                id="btn-view-promoted-on-map"
+                onClick={() => onNavigateToMap(promotedSuccessInfo.questionId)}
+                className="inline-flex items-center gap-1 text-[11px] font-sans font-medium text-holds hover:underline cursor-pointer"
               >
-                <X className="w-4 h-4" />
+                <span>View on Map</span>
+                <ArrowRight className="w-3 h-3" />
               </button>
-            </div>
-
-            <form onSubmit={handleSaveProblem} className="space-y-4">
-              <div>
-                <label className="block text-[10px] font-mono uppercase tracking-wider text-stone-400 dark:text-stone-500 mb-1">
-                  What is still open here? *
-                </label>
-                <textarea
-                  required
-                  rows={3}
-                  value={problemText}
-                  onChange={(e) => setProblemText(e.target.value)}
-                  placeholder="e.g. On-device INT4 quantization degrades attention map sparsity unpredictably across transformer layers."
-                  className="w-full text-xs p-2.5 rounded-[6px] border border-stone-200 dark:border-[#2e2e2e] bg-stone-50 dark:bg-[#141414] text-stone-900 dark:text-stone-100 focus:outline-none focus:border-stone-400 leading-relaxed"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-mono uppercase tracking-wider text-stone-400 dark:text-stone-500 mb-1">
-                  Source / Citation
-                </label>
-                <input
-                  type="text"
-                  value={problemSource}
-                  onChange={(e) => setProblemSource(e.target.value)}
-                  placeholder="e.g. Lin et al. 2023, MLSys"
-                  className="w-full text-xs p-2 rounded-[6px] border border-stone-200 dark:border-[#2e2e2e] bg-stone-50 dark:bg-[#141414] text-stone-900 dark:text-stone-100 focus:outline-none focus:border-stone-400 font-mono"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsAddingProblem(false)}
-                  className="px-3 py-1.5 text-xs font-mono rounded-[5px] border border-stone-200 dark:border-[#2e2e2e] text-stone-600 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-[#252525]"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-3 py-1.5 text-xs font-mono rounded-[5px] bg-stone-900 dark:bg-white text-white dark:text-stone-900 font-medium hover:opacity-90"
-                >
-                  {editingProblem ? 'Save changes' : 'Add note'}
-                </button>
-              </div>
-            </form>
+            )}
+            <button
+              onClick={() => setPromotedSuccessInfo(null)}
+              className="text-ink-muted hover:text-ink p-1 rounded-[2px] cursor-pointer"
+              title="Dismiss banner"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
       )}
 
-      {/* ========================================================= */}
-      {/* MODAL: ADD / EDIT CANDIDATE QUESTION                      */}
-      {/* ========================================================= */}
-      {isAddingCandidate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
-          <div className="w-full max-w-lg rounded-[8px] bg-white dark:bg-[#1c1c1c] border border-stone-200 dark:border-[#2e2e2e] p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-stone-100 dark:border-[#262626]">
-              <div className="flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#2C5EA8] dark:bg-[#7DB4F8]" />
-                <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-stone-900 dark:text-stone-100">
-                  {editingCandidate ? 'Edit Candidate Question' : 'New Candidate Question'}
-                </h3>
+      {/* ─── Main Two-Column Surface ────────────────────────────────── */}
+      <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-rule overflow-hidden">
+        {/* ═══════════════════════════════════════════════════════════════
+            LEFT COLUMN: OPEN PROBLEMS PILE (Raw Material)
+            ═══════════════════════════════════════════════════════════════ */}
+        <section
+          id="open-problems-column"
+          aria-label="Open Problems Pile"
+          className="h-full flex flex-col min-h-0 bg-paper/40 overflow-hidden"
+        >
+          {/* Left Column Header */}
+          <div className="shrink-0 px-5 py-3 border-b border-rule bg-paper/90 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-[11px] font-bold uppercase tracking-[0.08em] text-ink">
+                OPEN PROBLEMS
+              </span>
+              <span className="text-rule font-mono text-[10px]">·</span>
+              <span className="font-mono text-[12px] font-bold text-ink">
+                {looseCount} loose
+              </span>
+              <span className="text-rule font-mono text-[10px]">·</span>
+              <span className="font-mono text-[12px] text-ink-muted">
+                {clusteredCount} clustered
+              </span>
+            </div>
+
+            {/* Approaching threshold indicator */}
+            {looseCount >= 13 && !isHardStopActive && (
+              <span className="font-mono text-[10px] text-weak tracking-tight font-medium">
+                {looseCount} loose · {candidateCount} {candidateCount === 1 ? 'candidate' : 'candidates'}
+              </span>
+            )}
+          </div>
+
+          {/* Persistent Note Composer / Sealed Box */}
+          <div className="shrink-0 p-4 border-b border-rule bg-surface/50">
+            {isHardStopActive ? (
+              /* ─── SEALED COMPOSER (HARD STOP) ─────────────────────────── */
+              <div
+                id="composer-hard-stop-box"
+                className="p-4 bg-paper border border-missing/60 rounded-[2px] flex flex-col gap-3.5 select-none"
+              >
+                <div className="flex items-center justify-between border-b border-missing/30 pb-2">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-missing shrink-0" />
+                    <span className="font-mono text-[11px] font-bold uppercase tracking-[0.1em] text-missing">
+                      CAPTURE CLOSED
+                    </span>
+                  </div>
+                  <span className="font-mono text-[11px] font-bold text-ink">
+                    {looseCount} loose notes, {candidateCount} {candidateCount === 1 ? 'candidate' : 'candidates'}.
+                  </span>
+                </div>
+
+                <p className="font-serif text-[14px] leading-relaxed text-ink">
+                  Group these notes into at least 3 candidate questions before writing another.
+                  The pile is large enough to show a pattern — find it.
+                </p>
+
+                <div className="flex justify-end pt-1">
+                  <button
+                    id="btn-hardstop-propose-clusters"
+                    onClick={handleTriggerExaminerClustering}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-sans font-medium text-ink bg-surface border border-rule rounded-[2px] hover:border-ink-muted active:bg-paper transition-colors cursor-pointer"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-ink-muted" />
+                    <span>Propose clusters from my notes</span>
+                  </button>
+                </div>
               </div>
+            ) : (
+              /* ─── ACTIVE PERSISTENT COMPOSER ─────────────────────────── */
+              <form
+                id="open-problem-composer-form"
+                onSubmit={handleSubmitNote}
+                className="flex flex-col gap-2 bg-surface p-3 border border-rule rounded-[2px]"
+              >
+                <div className="flex items-center justify-between text-[10px] font-mono text-ink-muted uppercase tracking-wider">
+                  <span>Fast Note Capture</span>
+                  <span>Enter to commit</span>
+                </div>
+
+                {/* Field 1: Observation (User Serif) */}
+                <input
+                  id="input-problem-observation"
+                  ref={obsInputRef}
+                  type="text"
+                  placeholder="What is still open here? *"
+                  value={obsText}
+                  onChange={(e) => setObsText(e.target.value)}
+                  className="w-full bg-paper border border-rule px-3 py-1.5 text-[15px] font-serif text-ink placeholder:text-ink-muted/60 placeholder:font-serif rounded-[2px] focus:border-ink focus:outline-none"
+                />
+
+                {/* Field 2: Source (Secondary Sans) + Submit */}
+                <div className="flex items-center gap-2">
+                  <input
+                    id="input-problem-source"
+                    type="text"
+                    placeholder="Source (e.g. Olshausen & Field 1996, talk, meeting) *"
+                    value={obsSource}
+                    onChange={(e) => setObsSource(e.target.value)}
+                    className="flex-1 bg-paper border border-rule px-2.5 py-1 text-[12px] font-sans text-ink placeholder:text-ink-muted/60 rounded-[2px] focus:border-ink focus:outline-none"
+                  />
+
+                  <button
+                    id="btn-submit-open-problem"
+                    type="submit"
+                    disabled={!obsText.trim() || !obsSource.trim()}
+                    className="inline-flex items-center justify-center px-3 py-1 text-[12px] font-sans font-medium text-paper bg-ink rounded-[2px] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-ink/90 transition-colors cursor-pointer shrink-0"
+                  >
+                    Add note
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+
+          {/* Open Problems Scrollable Pile */}
+          <div
+            id="open-problems-pile-list"
+            className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col gap-3"
+          >
+            {openProblems.length === 0 ? (
+              /* ─── EMPTY STATE: NOTHING OPEN YET ──────────────────────── */
+              <div
+                id="empty-open-problems-state"
+                className="my-auto p-6 bg-surface/40 border border-dashed border-rule rounded-[2px] text-center flex flex-col items-center gap-3"
+              >
+                <span className="font-mono text-[11px] font-bold uppercase tracking-[0.1em] text-ink-muted">
+                  NOTHING OPEN YET
+                </span>
+                <p className="font-sans text-[13px] text-ink-muted max-w-md">
+                  Write what a paper left unresolved. One line, with its source.
+                </p>
+                <blockquote className="font-serif italic text-[14px] text-ink/80 border-l-2 border-rule pl-3 max-w-md text-left mt-1">
+                  “Nobody has tested whether sparse coding holds under non-natural image statistics.”
+                  <footer className="font-sans not-italic text-[11px] text-ink-muted mt-1">
+                    — Olshausen & Field 1996, discussion
+                  </footer>
+                </blockquote>
+              </div>
+            ) : (
+              openProblems.map((note) => {
+                const assignedCandidate = problemToCandidateMap.get(note.id);
+                const isLoose = !assignedCandidate;
+
+                return (
+                  <div
+                    key={note.id}
+                    id={`open-problem-card-${note.id}`}
+                    draggable={isLoose}
+                    onDragStart={(e) => {
+                      setDraggedProblemId(note.id);
+                      setResearchItemDragData(e.dataTransfer, {
+                        type: 'SURVEY',
+                        id: note.id,
+                        label: note.text,
+                      });
+                      e.dataTransfer.setData('text/plain', note.id);
+                    }}
+                    onDragEnd={() => setDraggedProblemId(null)}
+                    className={`relative p-3 rounded-[2px] transition-all flex flex-col gap-2 ${
+                      isLoose
+                        ? 'bg-surface border border-dashed border-rule hover:border-ink-muted shadow-[0_1px_2px_rgba(0,0,0,0.02)]'
+                        : 'bg-paper/70 border border-rule/50 opacity-85'
+                    }`}
+                  >
+                    {/* Top Row: State indicator & timestamp & actions */}
+                    <div className="flex items-center justify-between text-[11px] font-mono">
+                      <div className="flex items-center gap-1.5">
+                        {isLoose ? (
+                          <>
+                            <div className="cursor-grab active:cursor-grabbing text-ink-muted hover:text-ink">
+                              <GripVertical className="w-3.5 h-3.5" />
+                            </div>
+                            <span className="text-[10px] uppercase font-bold tracking-wider text-ink-muted">
+                              LOOSE
+                            </span>
+                          </>
+                        ) : (
+                          <div className="flex items-center gap-1 text-[11px] text-ink-muted">
+                            <CornerDownRight className="w-3 h-3 text-ink-muted shrink-0" />
+                            <span className="font-sans text-[11px] truncate max-w-[220px]">
+                              Clustered in:{' '}
+                              <strong className="font-medium text-ink">
+                                {assignedCandidate.text}
+                              </strong>
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-ink-muted/70">
+                          {formatDate(note.createdAt)}
+                        </span>
+
+                        {/* Quick Assign / Reassign Dropdown */}
+                        <div className="relative">
+                          <button
+                            onClick={() =>
+                              setAssignDropdownNoteId(
+                                assignDropdownNoteId === note.id ? null : note.id
+                              )
+                            }
+                            className="text-[11px] font-sans text-ink-muted hover:text-ink px-1.5 py-0.5 rounded-[2px] border border-rule hover:bg-surface transition-colors cursor-pointer"
+                            title="Assign to candidate question"
+                          >
+                            {isLoose ? '+ Group' : 'Move'}
+                          </button>
+
+                          {assignDropdownNoteId === note.id && (
+                            <div
+                              ref={assignDropdownRef}
+                              className="absolute right-0 mt-1 w-60 bg-surface border border-rule shadow-md rounded-[2px] p-1.5 z-40 flex flex-col gap-1 text-[12px] font-sans"
+                            >
+                              <div className="px-2 py-1 text-[10px] font-mono uppercase tracking-wider text-ink-muted border-b border-rule">
+                                Assign to Candidate
+                              </div>
+                              {candidateQuestions.length === 0 ? (
+                                <div className="p-2 text-[11px] text-ink-muted italic">
+                                  No candidates exist yet. Create one first.
+                                </div>
+                              ) : (
+                                candidateQuestions.map((cq) => {
+                                  const isCurrent = assignedCandidate?.id === cq.id;
+                                  return (
+                                    <button
+                                      key={cq.id}
+                                      onClick={() => {
+                                        onLinkProblemToCandidate(cq.id, note.id);
+                                        setAssignDropdownNoteId(null);
+                                      }}
+                                      className={`w-full text-left px-2 py-1.5 rounded-[2px] transition-colors flex items-center justify-between ${
+                                        isCurrent
+                                          ? 'bg-paper text-ink font-medium'
+                                          : 'hover:bg-paper text-ink'
+                                      }`}
+                                    >
+                                      <span className="truncate pr-2">{cq.text}</span>
+                                      {isCurrent && <Check className="w-3 h-3 text-holds" />}
+                                    </button>
+                                  );
+                                })
+                              )}
+                              {!isLoose && (
+                                <button
+                                  onClick={() => {
+                                    if (assignedCandidate) {
+                                      onUnlinkProblemFromCandidate(
+                                        assignedCandidate.id,
+                                        note.id
+                                      );
+                                    }
+                                    setAssignDropdownNoteId(null);
+                                  }}
+                                  className="w-full text-left px-2 py-1.5 rounded-[2px] text-missing hover:bg-paper border-t border-rule mt-0.5 pt-1.5 transition-colors"
+                                >
+                                  Return to loose
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Edit Note */}
+                        <button
+                          onClick={() => {
+                            setEditingNote(note);
+                            setEditNoteText(note.text);
+                            setEditNoteSource(note.citation || '');
+                          }}
+                          className="text-ink-muted hover:text-ink p-1 rounded-[2px] cursor-pointer"
+                          title="Edit note"
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </button>
+
+                        {/* Delete Note (Only allowed when loose!) */}
+                        <button
+                          onClick={() => {
+                            if (isLoose) {
+                              onRemoveOpenProblem(note.id);
+                            }
+                          }}
+                          disabled={!isLoose}
+                          className={`p-1 rounded-[2px] transition-colors ${
+                            isLoose
+                              ? 'text-ink-muted hover:text-missing cursor-pointer'
+                              : 'text-ink-muted/30 cursor-not-allowed'
+                          }`}
+                          title={
+                            isLoose
+                              ? 'Delete loose note'
+                              : 'Remove note from candidate first to delete'
+                          }
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Note Observation Text (User Serif) */}
+                    <div className="font-serif text-[15px] leading-relaxed text-ink">
+                      {note.text}
+                    </div>
+
+                    {/* Source Citation (Secondary Sans) */}
+                    {note.citation && (
+                      <div className="font-sans text-xs text-ink-muted flex items-center gap-1.5">
+                        <span className="text-rule">Source:</span>
+                        <span>{note.citation}</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </section>
+
+        {/* ═══════════════════════════════════════════════════════════════
+            RIGHT COLUMN: CANDIDATE QUESTIONS (Formed Material)
+            ═══════════════════════════════════════════════════════════════ */}
+        <section
+          id="candidate-questions-column"
+          aria-label="Candidate Questions"
+          className="h-full flex flex-col min-h-0 bg-paper/20 overflow-hidden"
+        >
+          {/* Right Column Header */}
+          <div className="shrink-0 px-5 py-3 border-b border-rule bg-paper/90 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-[11px] font-bold uppercase tracking-[0.08em] text-ink">
+                CANDIDATE QUESTIONS
+              </span>
+              <span className="text-rule font-mono text-[10px]">·</span>
+              <span className="font-mono text-[12px] font-bold text-ink">
+                {candidateCount}
+              </span>
+            </div>
+
+            <button
+              id="btn-add-candidate-column-header"
+              onClick={handleOpenCreateCandidate}
+              className="inline-flex items-center gap-1 text-[11px] font-sans font-medium text-ink-muted hover:text-ink px-2 py-0.5 rounded-[2px] border border-rule hover:bg-surface transition-colors cursor-pointer"
+            >
+              <Plus className="w-3 h-3" />
+              <span>New candidate</span>
+            </button>
+          </div>
+
+          {/* Right Column Scrollable List */}
+          <div
+            id="candidate-questions-list"
+            className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col gap-4"
+          >
+            {/* ─── Model Clustering Proposals (Reviewable) ─────────────── */}
+            {!onlyMine && proposals.length > 0 && (
+              <div className="flex flex-col gap-3">
+                {proposals.map((prop) => (
+                  <div
+                    key={prop.id}
+                    id={`clustering-proposal-${prop.id}`}
+                    className="relative pl-4 pr-3 py-3 bg-surface border border-rule rounded-[2px] font-mono text-[13px] text-ink leading-relaxed hatched-left-border flex flex-col gap-2.5"
+                  >
+                    {/* Proposal Header */}
+                    <div className="flex items-center justify-between border-b border-rule/60 pb-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] uppercase tracking-[0.08em] text-ink font-bold">
+                          PROPOSED GROUPING
+                        </span>
+                        <span className="text-rule">·</span>
+                        <span className="text-[11px] font-mono text-ink-muted">
+                          {prop.problemIds.length} notes
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-mono text-ink-muted/80">
+                        [{prop.modelId || 'cx/gpt-5.6-sol'}]
+                      </span>
+                    </div>
+
+                    {/* Shared observation explanation */}
+                    {prop.sharedObservation && (
+                      <p className="font-sans text-[13px] text-ink italic">
+                        {prop.sharedObservation}
+                      </p>
+                    )}
+
+                    {/* Notes contained in proposal */}
+                    <ul className="flex flex-col gap-1 my-1 pl-2 border-l border-rule/60">
+                      {prop.problemSnippets.map((snip, idx) => (
+                        <li
+                          key={idx}
+                          className="font-serif text-[13px] text-ink-muted leading-snug"
+                        >
+                          · {snip}
+                        </li>
+                      ))}
+                    </ul>
+
+                    {/* Working phrase explanation */}
+                    <div className="p-2 bg-paper/60 border border-rule/50 rounded-[2px] text-[12px] font-sans text-ink">
+                      <span className="font-mono text-[10px] uppercase text-ink-muted block mb-0.5">
+                        Model Working Phrase:
+                      </span>
+                      <p className="font-serif italic text-ink">{prop.workingPhrase || prop.groupName}</p>
+                      <span className="font-mono text-[10px] text-ink-muted block mt-1">
+                        You will need to write the candidate's wording yourself.
+                      </span>
+                    </div>
+
+                    {/* Action buttons */}
+                    <div className="flex items-center justify-end gap-2 pt-1">
+                      <button
+                        onClick={() => handleRejectProposal(prop.id)}
+                        className="px-2.5 py-1 text-[11px] font-sans text-ink-muted hover:text-ink bg-transparent border border-transparent hover:border-rule rounded-[2px] transition-colors cursor-pointer"
+                      >
+                        Reject
+                      </button>
+                      <button
+                        onClick={() => handleAcceptProposal(prop)}
+                        className="px-3 py-1 text-[11px] font-sans font-medium text-paper bg-ink rounded-[2px] hover:bg-ink/90 transition-colors cursor-pointer"
+                      >
+                        Accept grouping
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* ─── Candidate Questions List ──────────────────────────── */}
+            {candidateQuestions.length === 0 && proposals.length === 0 ? (
+              /* Empty candidate state */
+              <div
+                id="empty-candidates-state"
+                className="my-auto p-6 bg-surface/40 border border-dashed border-rule rounded-[2px] text-center flex flex-col items-center gap-3"
+              >
+                <span className="font-mono text-[11px] font-bold uppercase tracking-[0.1em] text-ink-muted">
+                  NO CANDIDATES YET
+                </span>
+                <p className="font-sans text-[13px] text-ink-muted max-w-md">
+                  Group notes that observe the same gap. Drag one onto another,
+                  or ask the examiner to propose groupings from what you have written.
+                </p>
+                <button
+                  onClick={handleOpenCreateCandidate}
+                  className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-sans font-medium text-ink bg-surface border border-rule rounded-[2px] hover:border-ink-muted transition-colors cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Create candidate question</span>
+                </button>
+              </div>
+            ) : (
+              candidateQuestions.map((candidate) => {
+                const linkedNotes = candidate.openProblemIds
+                  .map((pid) => openProblems.find((p) => p.id === pid))
+                  .filter((p): p is OpenProblemNote => !!p);
+
+                const isDragTarget = dragOverCandidateId === candidate.id;
+
+                return (
+                  <div
+                    key={candidate.id}
+                    id={`candidate-question-card-${candidate.id}`}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setDragOverCandidateId(candidate.id);
+                    }}
+                    onDragLeave={() => {
+                      if (dragOverCandidateId === candidate.id) {
+                        setDragOverCandidateId(null);
+                      }
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setDragOverCandidateId(null);
+                      const problemId = draggedProblemId || e.dataTransfer.getData('text/plain');
+                      if (problemId) {
+                        onLinkProblemToCandidate(candidate.id, problemId);
+                      }
+                    }}
+                    className={`relative p-4 rounded-[2px] bg-surface border transition-all flex flex-col gap-3 ${
+                      isDragTarget
+                        ? 'border-ink shadow-md bg-paper'
+                        : 'border-rule hover:border-ink-muted/80 shadow-[0_1px_2px_rgba(0,0,0,0.03)]'
+                    }`}
+                  >
+                    {/* Card Header: Label, note count, actions */}
+                    <div className="flex items-center justify-between border-b border-rule/60 pb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[10px] font-bold uppercase tracking-[0.1em] text-ink-muted">
+                          CANDIDATE
+                        </span>
+                        <span className="text-rule font-mono text-[10px]">·</span>
+                        <span className="font-mono text-[11px] text-ink font-medium">
+                          {linkedNotes.length} {linkedNotes.length === 1 ? 'note' : 'notes'}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => {
+                            setEditingCandidate(candidate);
+                            setEditCandidateText(candidate.text);
+                          }}
+                          className="text-ink-muted hover:text-ink p-1 rounded-[2px] cursor-pointer"
+                          title="Edit candidate wording"
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={() => onRemoveCandidateQuestion(candidate.id)}
+                          className="text-ink-muted hover:text-missing p-1 rounded-[2px] cursor-pointer"
+                          title="Delete candidate (releases notes back to loose)"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Candidate Question Wording (User Serif) */}
+                    <div className="font-serif text-[16px] font-medium leading-snug text-ink">
+                      {candidate.text}
+                    </div>
+
+                    {/* Linked Notes Compact Listing */}
+                    <div className="flex flex-col gap-1.5 pt-1">
+                      <span className="font-mono text-[10px] uppercase text-ink-muted tracking-wider">
+                        Contained observations:
+                      </span>
+                      {linkedNotes.length === 0 ? (
+                        <div className="p-2.5 bg-paper/50 border border-dashed border-rule rounded-[2px] text-[11px] font-sans text-ink-muted italic">
+                          Drop loose notes here to attach them to this candidate question.
+                        </div>
+                      ) : (
+                        <ul className="flex flex-col gap-1.5">
+                          {linkedNotes.map((ln) => (
+                            <li
+                              key={ln.id}
+                              className="group flex items-start justify-between gap-2 p-1.5 bg-paper/60 border border-rule/40 rounded-[2px] text-xs"
+                            >
+                              <div className="flex flex-col">
+                                <span className="font-serif text-[13px] text-ink leading-snug">
+                                  {ln.text}
+                                </span>
+                                {ln.citation && (
+                                  <span className="font-sans text-[10px] text-ink-muted mt-0.5">
+                                    — {ln.citation}
+                                  </span>
+                                )}
+                              </div>
+
+                              <button
+                                onClick={() =>
+                                  onUnlinkProblemFromCandidate(candidate.id, ln.id)
+                                }
+                                className="text-ink-muted hover:text-missing opacity-50 group-hover:opacity-100 p-0.5 rounded-[2px] transition-opacity cursor-pointer shrink-0"
+                                title="Remove note from candidate (returns to loose)"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+
+                    {/* Promotion Action Footer */}
+                    <div className="flex items-center justify-end pt-2 border-t border-rule/40">
+                      <button
+                        id={`btn-test-promotion-${candidate.id}`}
+                        onClick={() => handleOpenPromoteModal(candidate)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-sans font-medium text-ink bg-surface border border-rule rounded-[2px] hover:border-ink-muted hover:bg-paper active:bg-paper transition-colors cursor-pointer"
+                      >
+                        <span>Test for promotion</span>
+                        <ArrowRight className="w-3 h-3 text-ink-muted" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </section>
+      </div>
+
+      {/* ═══════════════════════════════════════════════════════════════
+          MODAL 1: EDIT OPEN PROBLEM NOTE
+          ═══════════════════════════════════════════════════════════════ */}
+      {editingNote && (
+        <div
+          className="fixed inset-0 bg-ink/40 backdrop-blur-[1px] flex items-center justify-center p-4 z-50 select-text"
+        >
+          <div className="w-full max-w-lg bg-surface border border-rule shadow-xl rounded-[2px] p-5 flex flex-col gap-4">
+            <div className="flex items-center justify-between border-b border-rule pb-2">
+              <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-ink">
+                EDIT OPEN PROBLEM NOTE
+              </span>
               <button
-                type="button"
-                onClick={() => setIsAddingCandidate(false)}
-                className="text-stone-400 hover:text-stone-700 dark:hover:text-stone-200"
+                onClick={() => setEditingNote(null)}
+                className="text-ink-muted hover:text-ink p-1 rounded-[2px]"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveCandidate} className="space-y-4">
-              <div>
-                <label className="block text-[10px] font-mono uppercase tracking-wider text-stone-400 dark:text-stone-500 mb-1">
-                  Candidate Question Text *
-                </label>
+            <div className="flex flex-col gap-3">
+              <label className="flex flex-col gap-1">
+                <span className="text-[11px] font-mono text-ink-muted uppercase">
+                  Observation *
+                </span>
                 <textarea
-                  required
                   rows={3}
-                  value={candidateText}
-                  onChange={(e) => setCandidateText(e.target.value)}
-                  placeholder="e.g. Are TinyML latency numbers comparable across devices?"
-                  className="w-full text-xs p-2.5 rounded-[6px] border border-stone-200 dark:border-[#2e2e2e] bg-stone-50 dark:bg-[#141414] text-stone-900 dark:text-stone-100 focus:outline-none focus:border-stone-400 leading-relaxed"
+                  value={editNoteText}
+                  onChange={(e) => setEditNoteText(e.target.value)}
+                  className="bg-paper border border-rule p-2.5 font-serif text-[15px] text-ink rounded-[2px] focus:border-ink focus:outline-none"
                 />
-              </div>
+              </label>
 
-              {!editingCandidate && openProblems.length > 0 && (
-                <div>
-                  <label className="block text-[10px] font-mono uppercase tracking-wider text-stone-400 dark:text-stone-500 mb-1">
-                    Attach Open Problems (Optional)
-                  </label>
-                  <div className="max-h-40 overflow-y-auto space-y-1 p-2 rounded-[6px] border border-stone-200 dark:border-[#2e2e2e] bg-stone-50 dark:bg-[#141414]">
-                    {openProblems.map((prob) => {
-                      const isChecked = selectedNotesForNewCandidate.includes(prob.id);
+              <label className="flex flex-col gap-1">
+                <span className="text-[11px] font-mono text-ink-muted uppercase">
+                  Source *
+                </span>
+                <input
+                  type="text"
+                  value={editNoteSource}
+                  onChange={(e) => setEditNoteSource(e.target.value)}
+                  className="bg-paper border border-rule p-2 text-xs font-sans text-ink rounded-[2px] focus:border-ink focus:outline-none"
+                />
+              </label>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-rule">
+              <button
+                onClick={() => setEditingNote(null)}
+                className="px-3 py-1.5 text-xs font-sans text-ink-muted hover:text-ink"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (editNoteText.trim()) {
+                    onUpdateOpenProblem(
+                      editingNote.id,
+                      editNoteText.trim(),
+                      editNoteSource.trim()
+                    );
+                    setEditingNote(null);
+                  }
+                }}
+                disabled={!editNoteText.trim() || !editNoteSource.trim()}
+                className="px-4 py-1.5 text-xs font-sans font-medium text-paper bg-ink rounded-[2px] disabled:opacity-40"
+              >
+                Save changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════
+          MODAL 2: CREATE CANDIDATE QUESTION
+          ═══════════════════════════════════════════════════════════════ */}
+      {isCreatingCandidate && (
+        <div
+          className="fixed inset-0 bg-ink/40 backdrop-blur-[1px] flex items-center justify-center p-4 z-50 select-text"
+        >
+          <div className="w-full max-w-lg bg-surface border border-rule shadow-xl rounded-[2px] p-5 flex flex-col gap-4">
+            <div className="flex items-center justify-between border-b border-rule pb-2">
+              <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-ink">
+                CREATE CANDIDATE QUESTION
+              </span>
+              <button
+                onClick={() => setIsCreatingCandidate(false)}
+                className="text-ink-muted hover:text-ink p-1 rounded-[2px]"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-3">
+              <label className="flex flex-col gap-1">
+                <span className="text-[11px] font-mono text-ink-muted uppercase">
+                  Candidate Question Wording (Write in your own words) *
+                </span>
+                <textarea
+                  rows={3}
+                  placeholder="e.g. Does sparse coding depend on natural image statistics?"
+                  value={newCandidateWording}
+                  onChange={(e) => setNewCandidateWording(e.target.value)}
+                  className="bg-paper border border-rule p-2.5 font-serif text-[16px] text-ink rounded-[2px] focus:border-ink focus:outline-none"
+                  autoFocus
+                />
+              </label>
+
+              {/* Attach loose notes selector */}
+              {looseNotes.length > 0 && (
+                <div className="flex flex-col gap-1.5 mt-1">
+                  <span className="text-[11px] font-mono text-ink-muted uppercase">
+                    Attach Loose Notes ({newCandidateSelectedNotes.length} selected):
+                  </span>
+                  <div className="max-h-36 overflow-y-auto border border-rule rounded-[2px] p-2 bg-paper flex flex-col gap-1.5">
+                    {looseNotes.map((ln) => {
+                      const isChecked = newCandidateSelectedNotes.includes(ln.id);
                       return (
-                        <button
-                          key={prob.id}
-                          type="button"
-                          onClick={() => {
-                            setSelectedNotesForNewCandidate((prev) =>
-                              isChecked ? prev.filter((id) => id !== prob.id) : [...prev, prob.id]
-                            );
-                          }}
-                          className="w-full flex items-start gap-2 p-1.5 rounded hover:bg-stone-200/50 dark:hover:bg-[#202020] text-left cursor-pointer transition-colors"
+                        <label
+                          key={ln.id}
+                          className="flex items-start gap-2 text-xs font-serif text-ink cursor-pointer hover:bg-surface p-1 rounded-[2px]"
                         >
-                          <div
-                            className={`mt-0.5 w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 ${
-                              isChecked
-                                ? 'bg-stone-900 dark:bg-white border-stone-900 dark:border-white text-white dark:text-stone-900'
-                                : 'border-stone-300 dark:border-stone-600 bg-transparent'
-                            }`}
-                          >
-                            {isChecked && <Check className="w-2.5 h-2.5 stroke-[3]" />}
-                          </div>
-                          <span className="text-xs text-stone-800 dark:text-stone-200 leading-snug line-clamp-2">
-                            {prob.text}
-                          </span>
-                        </button>
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => {
+                              if (isChecked) {
+                                setNewCandidateSelectedNotes(
+                                  newCandidateSelectedNotes.filter((id) => id !== ln.id)
+                                );
+                              } else {
+                                setNewCandidateSelectedNotes([
+                                  ...newCandidateSelectedNotes,
+                                  ln.id,
+                                ]);
+                              }
+                            }}
+                            className="mt-0.5"
+                          />
+                          <span className="leading-snug">{ln.text}</span>
+                        </label>
                       );
                     })}
                   </div>
                 </div>
               )}
+            </div>
 
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsAddingCandidate(false)}
-                  className="px-3 py-1.5 text-xs font-mono rounded-[5px] border border-stone-200 dark:border-[#2e2e2e] text-stone-600 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-[#252525]"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-3 py-1.5 text-xs font-mono rounded-[5px] bg-stone-900 dark:bg-white text-white dark:text-stone-900 font-medium hover:opacity-90"
-                >
-                  {editingCandidate ? 'Save changes' : 'Create candidate'}
-                </button>
-              </div>
-            </form>
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-rule">
+              <button
+                onClick={() => setIsCreatingCandidate(false)}
+                className="px-3 py-1.5 text-xs font-sans text-ink-muted hover:text-ink"
+              >
+                Cancel
+              </button>
+              <button
+                id="btn-commit-create-candidate"
+                onClick={handleCommitCreateCandidate}
+                disabled={!newCandidateWording.trim()}
+                className="px-4 py-1.5 text-xs font-sans font-medium text-paper bg-ink rounded-[2px] disabled:opacity-40"
+              >
+                Create candidate
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* ========================================================= */}
-      {/* MODAL: PROMOTE CANDIDATE TO QUESTION                      */}
-      {/* ========================================================= */}
-      {promotingCandidate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
-          <div className="w-full max-w-lg rounded-[8px] bg-white dark:bg-[#1c1c1c] border border-stone-200 dark:border-[#2e2e2e] p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-stone-100 dark:border-[#262626]">
-              <div className="flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#ffb000]" />
-                <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-stone-900 dark:text-stone-100">
-                  Promote to Research Question
-                </h3>
-              </div>
+      {/* ═══════════════════════════════════════════════════════════════
+          MODAL 3: EDIT CANDIDATE QUESTION WORDING
+          ═══════════════════════════════════════════════════════════════ */}
+      {editingCandidate && (
+        <div
+          className="fixed inset-0 bg-ink/40 backdrop-blur-[1px] flex items-center justify-center p-4 z-50 select-text"
+        >
+          <div className="w-full max-w-lg bg-surface border border-rule shadow-xl rounded-[2px] p-5 flex flex-col gap-4">
+            <div className="flex items-center justify-between border-b border-rule pb-2">
+              <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-ink">
+                EDIT CANDIDATE WORDING
+              </span>
               <button
-                type="button"
-                onClick={() => setPromotingCandidate(null)}
-                className="text-stone-400 hover:text-stone-700 dark:hover:text-stone-200"
+                onClick={() => setEditingCandidate(null)}
+                className="text-ink-muted hover:text-ink p-1 rounded-[2px]"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="p-3 rounded-[6px] bg-stone-50 dark:bg-[#141414] border border-stone-200 dark:border-[#262626]">
-              <span className="text-[10px] font-mono uppercase tracking-wider text-stone-400 block mb-1">
-                Candidate Question
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] font-mono text-ink-muted uppercase">
+                Candidate Question *
               </span>
-              <p className="text-xs font-medium text-stone-900 dark:text-stone-100">
-                {promotingCandidate.text}
-              </p>
+              <textarea
+                rows={3}
+                value={editCandidateText}
+                onChange={(e) => setEditCandidateText(e.target.value)}
+                className="bg-paper border border-rule p-2.5 font-serif text-[16px] text-ink rounded-[2px] focus:border-ink focus:outline-none"
+              />
+            </label>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-rule">
+              <button
+                onClick={() => setEditingCandidate(null)}
+                className="px-3 py-1.5 text-xs font-sans text-ink-muted hover:text-ink"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (editCandidateText.trim()) {
+                    onUpdateCandidateQuestion(
+                      editingCandidate.id,
+                      editCandidateText.trim()
+                    );
+                    setEditingCandidate(null);
+                  }
+                }}
+                disabled={!editCandidateText.trim()}
+                className="px-4 py-1.5 text-xs font-sans font-medium text-paper bg-ink rounded-[2px] disabled:opacity-40"
+              >
+                Save
+              </button>
             </div>
+          </div>
+        </div>
+      )}
 
-            <div className="space-y-3">
-              <div>
-                <label className="block text-[10px] font-mono uppercase tracking-wider text-stone-400 dark:text-stone-500 mb-1">
-                  Your Initial Claim answering this question *
-                </label>
-                <textarea
-                  required
-                  rows={3}
-                  value={promoteClaimText}
-                  onChange={(e) => setPromoteClaimText(e.target.value)}
-                  placeholder="State the assertion that answers this question..."
-                  className="w-full text-xs p-2.5 rounded-[6px] border border-stone-200 dark:border-[#2e2e2e] bg-stone-50 dark:bg-[#141414] text-stone-900 dark:text-stone-100 focus:outline-none focus:border-stone-400 leading-relaxed"
-                />
-              </div>
-
-              {/* Epistemic Verification Checkboxes (AGENTS.md mandatory rule) */}
-              <div className="space-y-2 pt-2 border-t border-stone-100 dark:border-[#262626]">
-                <label className="flex items-start gap-2.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={box1Checked}
-                    onChange={(e) => setBox1Checked(e.target.checked)}
-                    className="mt-0.5 rounded border-stone-300 dark:border-stone-600 text-stone-900 focus:ring-0"
-                  />
-                  <span className="text-xs text-stone-700 dark:text-stone-300 leading-snug">
-                    This claim could be false (it is falsifiable, not a trivial definition).
-                  </span>
-                </label>
-
-                <label className="flex items-start gap-2.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={box2Checked}
-                    onChange={(e) => setBox2Checked(e.target.checked)}
-                    className="mt-0.5 rounded border-stone-300 dark:border-stone-600 text-stone-900 focus:ring-0"
-                  />
-                  <span className="text-xs text-stone-700 dark:text-stone-300 leading-snug">
-                    This claim could be settled within a year (the scope is bounded).
-                  </span>
-                </label>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between pt-3 border-t border-stone-100 dark:border-[#262626]">
-              <span className="text-[10px] font-mono text-stone-400">
-                Promotion is one-way.
-              </span>
-              <div className="flex gap-2">
+      {/* ═══════════════════════════════════════════════════════════════
+          MODAL 4: THE PROMOTION TEST PANEL (Strict Human Authoring)
+          ═══════════════════════════════════════════════════════════════ */}
+      {promotingCandidate && (
+        <div
+          id="promotion-test-modal"
+          className="fixed inset-0 bg-ink/50 backdrop-blur-[2px] flex items-center justify-center p-4 z-50 select-text overflow-y-auto"
+        >
+          <div className="w-full max-w-2xl bg-surface border border-rule shadow-2xl rounded-[2px] p-6 flex flex-col gap-5 my-8">
+            {/* Header */}
+            <div className="flex flex-col gap-1 pb-3 border-b border-rule">
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-[11px] font-bold uppercase tracking-[0.12em] text-ink">
+                  PROMOTE TO QUESTION
+                </span>
                 <button
-                  type="button"
                   onClick={() => setPromotingCandidate(null)}
-                  className="px-3 py-1.5 text-xs font-mono rounded-[5px] border border-stone-200 dark:border-[#2e2e2e] text-stone-600 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-[#252525]"
+                  className="text-ink-muted hover:text-ink p-1 rounded-[2px]"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="mt-2">
+                <span className="font-mono text-[10px] uppercase text-ink-muted tracking-wider block">
+                  CANDIDATE
+                </span>
+                <div className="font-serif text-[17px] font-medium text-ink mt-0.5 leading-snug">
+                  {promotingCandidate.text}
+                </div>
+                <span className="font-sans text-xs text-ink-muted mt-1 block">
+                  {promotingCandidate.openProblemIds.length}{' '}
+                  {promotingCandidate.openProblemIds.length === 1 ? 'note' : 'notes'} will move with
+                  this question as provenance.
+                </span>
+              </div>
+            </div>
+
+            {/* Section: Write a claim that answers it */}
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-col">
+                <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-ink">
+                  WRITE A CLAIM THAT ANSWERS IT *
+                </span>
+                <span className="font-serif italic text-xs text-ink-muted">
+                  A question you cannot answer yet is not ready to be a question.
+                </span>
+              </div>
+
+              <textarea
+                id="textarea-promote-claim"
+                rows={3}
+                placeholder="Write your preliminary claim hypothesis answering this question..."
+                value={promoteClaimText}
+                onChange={(e) => setPromoteClaimText(e.target.value)}
+                className="w-full bg-paper border border-rule p-3 font-serif text-[15px] leading-relaxed text-ink rounded-[2px] focus:border-ink focus:outline-none"
+                autoFocus
+              />
+            </div>
+
+            {/* Checkbox 1: Falsifiability Test */}
+            <div className="p-3.5 bg-paper/60 border border-rule rounded-[2px] flex flex-col gap-2.5">
+              <label className="flex items-start gap-3 cursor-pointer select-none">
+                <input
+                  id="checkbox-promote-falsifiable"
+                  type="checkbox"
+                  checked={boxFalsifiable}
+                  onChange={(e) => setBoxFalsifiable(e.target.checked)}
+                  className="mt-1 w-4 h-4"
+                />
+                <div className="flex flex-col">
+                  <span className="font-sans text-sm font-semibold text-ink">
+                    This claim could be false.
+                  </span>
+                  <span className="font-sans text-xs text-ink-muted">
+                    Name what would show it false. If nothing could, it is not a claim.
+                  </span>
+                </div>
+              </label>
+
+              {boxFalsifiable && (
+                <div className="pl-7 pt-1">
+                  <input
+                    id="input-falsification-condition"
+                    type="text"
+                    placeholder="State what observation or measurement would falsify this claim... *"
+                    value={falsificationCondition}
+                    onChange={(e) => setFalsificationCondition(e.target.value)}
+                    className="w-full bg-surface border border-rule px-3 py-1.5 text-xs font-sans text-ink rounded-[2px] focus:border-ink focus:outline-none"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Checkbox 2: Scope Settled in a Year */}
+            <div className="p-3.5 bg-paper/60 border border-rule rounded-[2px]">
+              <label className="flex items-start gap-3 cursor-pointer select-none">
+                <input
+                  id="checkbox-promote-settled"
+                  type="checkbox"
+                  checked={boxSettledInYear}
+                  onChange={(e) => setBoxSettledInYear(e.target.checked)}
+                  className="mt-1 w-4 h-4"
+                />
+                <div className="flex flex-col">
+                  <span className="font-sans text-sm font-semibold text-ink">
+                    This could be settled within a year.
+                  </span>
+                  <span className="font-sans text-xs text-ink-muted">
+                    With the methods and access you actually have.
+                  </span>
+                </div>
+              </label>
+            </div>
+
+            {/* Tags Section */}
+            <div className="flex flex-col gap-1.5 pt-1">
+              <span className="font-mono text-[10px] uppercase text-ink-muted tracking-wider">
+                TAGS (inherits active filter):
+              </span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {promoteTags.map((t) => (
+                  <span
+                    key={t}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 bg-surface border border-rule rounded-[2px] font-mono text-[11px] text-ink"
+                  >
+                    <span>{t}</span>
+                    <button
+                      onClick={() => handleRemoveTag(t)}
+                      className="text-ink-muted hover:text-ink cursor-pointer"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+
+                <div className="inline-flex items-center gap-1">
+                  <input
+                    type="text"
+                    placeholder="+ add tag"
+                    value={newTagInput}
+                    onChange={(e) => setNewTagInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddTag();
+                      }
+                    }}
+                    className="w-24 bg-paper border border-rule px-1.5 py-0.5 text-[11px] font-mono rounded-[2px] focus:border-ink focus:outline-none"
+                  />
+                  {newTagInput && (
+                    <button
+                      onClick={handleAddTag}
+                      className="text-[11px] font-mono px-1 bg-surface border border-rule rounded-[2px]"
+                    >
+                      add
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Permanent Notice & Action Buttons */}
+            <div className="flex items-center justify-between pt-3 border-t border-rule">
+              <span className="font-mono text-[11px] text-ink-muted/80">
+                Promotion is permanent. There is no demote.
+              </span>
+
+              <div className="flex items-center gap-2.5">
+                <button
+                  onClick={() => setPromotingCandidate(null)}
+                  className="px-3 py-1.5 text-xs font-sans text-ink-muted hover:text-ink cursor-pointer"
                 >
                   Cancel
                 </button>
+
                 <button
-                  type="button"
-                  disabled={!promoteClaimText.trim() || !box1Checked || !box2Checked}
-                  onClick={handleConfirmPromote}
-                  className="px-3 py-1.5 text-xs font-mono rounded-[5px] bg-stone-900 dark:bg-white text-white dark:text-stone-900 font-medium disabled:opacity-40 hover:opacity-90"
+                  id="btn-confirm-promote"
+                  onClick={handleCommitPromotion}
+                  disabled={!isPromoteValid}
+                  title={!isPromoteValid ? `Cannot promote: ${getMissingPromotionReason()}` : undefined}
+                  className={`px-4 py-1.5 text-xs font-sans font-medium rounded-[2px] transition-colors ${
+                    isPromoteValid
+                      ? 'bg-ink text-paper hover:bg-ink/90 cursor-pointer shadow-sm'
+                      : 'bg-rule/60 text-ink-muted/60 cursor-not-allowed'
+                  }`}
                 >
-                  Promote to Question
+                  {isPromoteValid ? 'Promote' : `Promote (${getMissingPromotionReason()})`}
                 </button>
               </div>
             </div>

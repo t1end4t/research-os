@@ -4,6 +4,53 @@ export type LinkStatus = 'holds' | 'weak' | 'missing';
 
 export type ExperimentStatus = 'planned' | 'running' | 'done';
 
+export type ExaminerVerdict = 'pass' | 'partial' | 'mismatch';
+
+export interface ExaminerAxisVerdict {
+  label: 'TYPE' | 'SCOPE' | 'TARGET';
+  verdict: ExaminerVerdict;
+  detail: string;
+}
+
+export interface ExaminerCheckResult {
+  modelId: string;
+  timestamp: string;
+  checkedTimestamp?: number;
+  finding: string;
+  axes: ExaminerAxisVerdict[];
+  isStale?: boolean;
+  staleNote?: string;
+  checkedReason?: string;
+  checkedClaimText?: string;
+}
+
+export interface ClaimVersion {
+  versionNumber: number;
+  versionLabel: string;
+  timestamp: string;
+  createdAt: number;
+  claimText: string;
+  note: string;
+  trigger?: string;
+}
+
+export interface LinkHistoryEvent {
+  id: string;
+  timestamp: string;
+  createdAt: number;
+  kind:
+    | 'version_created'
+    | 'reason_updated'
+    | 'check_run'
+    | 'finding_dismissed'
+    | 'experiment_added'
+    | 'claim_rejected'
+    | 'claim_unrejected';
+  summary: string;
+  userNote?: string;
+  targetId?: string;
+}
+
 export interface EvidenceItem {
   id: string;
   kind: EvidenceKind;
@@ -11,9 +58,15 @@ export interface EvidenceItem {
   title: string;
   userReason?: string;
   citation?: string;
+  paperId?: string;
+  experimentId?: string;
   status?: ExperimentStatus;
+  artifactCount?: number;
+  linkStatus?: LinkStatus;
+  checkResult?: ExaminerCheckResult;
   placeholderText?: string;
   isEmpty?: boolean;
+  createdAt?: number;
 }
 
 export interface CheckItem {
@@ -34,16 +87,75 @@ export interface ClaimNode {
   id: string;
   type: 'CLAIM';
   text: string;
+  version?: number;
+  lastEditedTime?: string;
   linkStatus: LinkStatus;
+  questionReason?: string;
+  questionCheckResult?: ExaminerCheckResult;
   evidence: EvidenceItem[];
   check: ClaimCheck;
   isRejected?: boolean;
+  rejectNote?: string;
+  history?: ClaimVersion[];
+  linkEvents?: LinkHistoryEvent[];
 }
 
 export type FilterStatus = 'all' | 'weak' | 'missing';
-export type AppTab = 'graph' | 'survey' | 'detail' | 'papers' | 'experiments';
+export type AppTab = 'graph' | 'survey' | 'detail' | 'papers' | 'experiments' | 'draft';
 
-export type AssistantContextKind = 'whole_graph' | 'survey' | 'claim' | 'paper' | 'experiment';
+// ==========================================
+// DRAFT ASSEMBLY DATA STRUCTURES (Outside Graph Tree)
+// ==========================================
+
+export type DraftReferenceTargetType = 'claim' | 'evidence';
+
+export interface DraftPlacedReference {
+  id: string;
+  targetType: DraftReferenceTargetType;
+  targetId: string;
+  placedVersion?: number | string;
+  anchorCode: string; // e.g. 'C1', 'E1', 'E3'
+  placedTimestamp?: number;
+  userNote?: string;
+  paragraphIndex?: number;
+}
+
+export interface DraftPlacedArtifact {
+  id: string;
+  artifactId: string;
+  artifactType: ArtifactType;
+  localNumber: number; // e.g. 1 for Figure 1 or Table 1
+  caption: string; // Required user-written caption field, never generated
+  anchorCode: string; // e.g. 'F1', 'T1', 'N1'
+  paragraphIndex?: number;
+}
+
+export interface DraftSubsection {
+  id: string;
+  title: string;
+  purpose: string;
+  prose: string;
+  placedReferences: DraftPlacedReference[];
+  placedArtifacts: DraftPlacedArtifact[];
+}
+
+export interface DraftSection {
+  id: string;
+  title: string;
+  purpose: string; // 'What must this section establish?' - user-written only
+  prose: string;
+  subsections?: DraftSubsection[];
+  placedReferences: DraftPlacedReference[];
+  placedArtifacts: DraftPlacedArtifact[];
+}
+
+export interface DraftManuscript {
+  title: string;
+  sections: DraftSection[];
+  lastEditedTimestamp?: number;
+}
+
+export type AssistantContextKind = 'whole_graph' | 'survey' | 'claim' | 'paper' | 'experiment' | 'draft';
 
 export interface OpenProblemNote {
   id: string;
@@ -62,8 +174,11 @@ export interface CandidateQuestion {
 export interface ClusteringProposal {
   id: string;
   groupName: string;
+  sharedObservation?: string;
+  workingPhrase?: string;
   problemIds: string[];
   problemSnippets: string[];
+  modelId?: string;
 }
 
 export interface QuestionNode {
@@ -160,11 +275,14 @@ export interface ArtifactItem {
   id: string;
   type: ArtifactType;
   title: string;
+  filename?: string;
   caption: string;
   date: string;
   claimId: string;
   claimText: string;
+  experimentId?: string;
   findingSummary?: string;
+  findingAuthor?: 'user';
   // For PLOT
   plotPoints?: { x: number; y: number; y2?: number; label?: string }[];
   plotLabels?: { x: string; y: string };
@@ -179,9 +297,15 @@ export interface ArtifactItem {
 export interface ExperimentGroup {
   id: string;
   name: string;
+  questionId?: string;
+  questionText?: string;
   claimId: string;
   claimText: string;
   claimStatus: LinkStatus;
   status: ExperimentStatus;
+  targetStatement?: string;
+  date?: string;
+  checkResult?: ExaminerCheckResult;
+  targetMismatchNote?: string;
   artifacts: ArtifactItem[];
 }

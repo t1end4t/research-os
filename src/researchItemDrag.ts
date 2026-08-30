@@ -1,8 +1,10 @@
 export type DraggableResearchItemType =
   | 'QUESTION'
   | 'CLAIM'
+  | 'EVIDENCE'
   | 'PAPER'
   | 'EXPERIMENT'
+  | 'ARTIFACT'
   | 'SURVEY';
 
 export interface DraggableResearchItem {
@@ -16,8 +18,10 @@ export const RESEARCH_ITEM_DRAG_TYPE = 'application/x-instrument-research-item';
 const DRAGGABLE_RESEARCH_ITEM_TYPES = new Set<DraggableResearchItemType>([
   'QUESTION',
   'CLAIM',
+  'EVIDENCE',
   'PAPER',
   'EXPERIMENT',
+  'ARTIFACT',
   'SURVEY',
 ]);
 

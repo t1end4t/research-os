@@ -1,10 +1,15 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { setResearchItemDragData } from '../researchItemDrag';
-import { PaperDoc, LeftRailMark, QuestionNode } from '../types';
+import { PaperDoc, LeftRailMark, QuestionNode, LinkStatus } from '../types';
 import { RealPdfViewer } from './papers/RealPdfViewer';
 import { UploadPdfModal } from './papers/UploadPdfModal';
 import { ArxivImportModal } from './papers/ArxivImportModal';
+import { ReadHeader } from './papers/ReadHeader';
+import { FindingCaptureSlip, FindingDraftPayload } from './papers/FindingCaptureSlip';
+import { LinkedPassageRail } from './papers/LinkedPassageRail';
+import { PaperInfoModal } from './papers/PaperInfoModal';
 import { generateAcademicPdf } from '../utils/academicPdfGenerator';
+import { SectionLabel, UserText, Button } from './ui/instrument';
 import {
   ZoomIn,
   ZoomOut,
@@ -15,11 +20,16 @@ import {
   Upload,
   Globe,
   FileCode,
-  Printer,
+  Search,
   ChevronLeft,
   ChevronRight,
   Maximize2,
+  Info,
+  RotateCcw,
+  CheckCircle,
+  Quote,
   Sparkles,
+  BookOpen,
 } from 'lucide-react';
 
 interface PapersPaneProps {
@@ -44,10 +54,21 @@ interface PapersPaneProps {
     citation: string,
     supportReason: string
   ) => void;
+  onRemoveEvidence?: (claimId: string, evidenceId: string) => void;
+  onNavigateToClaim?: (claimId: string) => void;
   onAddOpenProblem?: (text: string, citation?: string) => void;
   onAskAboutSelection: (snippet: string, paperId: string) => void;
   onAddCustomPaper?: (paper: PaperDoc) => void;
   targetPassageParagraphId?: string | null;
+}
+
+interface ConfirmationToast {
+  id: string;
+  claimId: string;
+  evidenceId: string;
+  claimText: string;
+  findingTitle: string;
+  timestamp: number;
 }
 
 export function PapersPane({
@@ -67,24 +88,36 @@ export function PapersPane({
   paperMarks,
   onAddMark,
   onAddEvidenceToClaim,
+  onRemoveEvidence,
+  onNavigateToClaim,
   onAddOpenProblem,
   onAskAboutSelection,
   onAddCustomPaper,
   targetPassageParagraphId,
 }: PapersPaneProps) {
-  const [isPaperPickerOpen, setIsPaperPickerOpen] = useState<boolean>(false);
+  // Session Metrics: Tracks findings and highlights made during this reading session
+  const [sessionFindingCount, setSessionFindingCount] = useState<number>(0);
+  const [sessionHighlightCount, setSessionHighlightCount] = useState<number>(0);
+
+  // View Mode & Page State
   const [viewMode, setViewMode] = useState<'pdf' | 'text' | 'abstract'>('pdf');
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [totalPages, setTotalPages] = useState<number>(1);
 
-  // Modals
+  // Modals & Panels
+  const [isPaperPickerOpen, setIsPaperPickerOpen] = useState<boolean>(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState<boolean>(false);
   const [isArxivModalOpen, setIsArxivModalOpen] = useState<boolean>(false);
+  const [isInfoModalOpen, setIsInfoModalOpen] = useState<boolean>(false);
+  const [isFindingSlipOpen, setIsFindingSlipOpen] = useState<boolean>(false);
+
+  // Confirmation banner with Undo
+  const [confirmationToast, setConfirmationToast] = useState<ConfirmationToast | null>(null);
 
   // PDF binary buffers cache (for generated / uploaded PDFs)
   const [pdfBuffers, setPdfBuffers] = useState<Record<string, Uint8Array>>({});
 
-  // Text selection & floating popover state
+  // Text selection state
   const [selectionRange, setSelectionRange] = useState<{
     text: string;
     top: number;
@@ -92,10 +125,6 @@ export function PapersPane({
     paragraphId?: string;
     pageNumber?: number;
   } | null>(null);
-
-  const [isEvidencePopoverOpen, setIsEvidencePopoverOpen] = useState<boolean>(false);
-  const [popoverClaimId, setPopoverClaimId] = useState<string>(selectedClaimId || 'c1');
-  const [supportReasonText, setSupportReasonText] = useState<string>('');
 
   // Target jump for marks
   const [targetedMark, setTargetedMark] = useState<LeftRailMark | null>(null);
@@ -109,16 +138,12 @@ export function PapersPane({
       questions.flatMap((q) =>
         q.claims.map((c) => ({
           ...c,
+          questionId: q.id,
           questionText: q.text,
         }))
       ),
     [questions]
   );
-
-  const getPaperDoc = (paperIdOrEvidenceId: string) => {
-    const paperId = evidenceToPaperMap[paperIdOrEvidenceId] || paperIdOrEvidenceId;
-    return papers.find((paper) => paper.id === paperId);
-  };
 
   // Active paper object
   const activePaper: PaperDoc | undefined = activePaperId
@@ -129,13 +154,6 @@ export function PapersPane({
   const currentMarks = activePaperId
     ? paperMarks[activePaperId] ?? activePaper?.initialMarks ?? []
     : [];
-
-  // Sync popoverClaimId when selectedClaimId prop changes
-  useEffect(() => {
-    if (selectedClaimId) {
-      setPopoverClaimId(selectedClaimId);
-    }
-  }, [selectedClaimId]);
 
   // Generate or prepare PDF buffer for the active paper if not present
   useEffect(() => {
@@ -158,7 +176,6 @@ export function PapersPane({
     if (pdfBuffers[activePaper.id]) return;
 
     try {
-      // Dynamically generate publication-grade PDF from paper structure
       const generated = generateAcademicPdf(activePaper);
       setPdfBuffers((prev) => ({ ...prev, [activePaper.id]: generated }));
     } catch (err) {
@@ -192,9 +209,25 @@ export function PapersPane({
     };
   }, [isPaperPickerOpen]);
 
+  // Handle escape key to cancel selection or close slip
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (isFindingSlipOpen) {
+          setIsFindingSlipOpen(false);
+        } else if (selectionRange) {
+          setSelectionRange(null);
+          window.getSelection()?.removeAllRanges();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isFindingSlipOpen, selectionRange]);
+
   // Handle Document Text Selection in Text Mode
   const handleTextModeMouseUp = () => {
-    if (isEvidencePopoverOpen) return;
+    if (isFindingSlipOpen) return;
 
     const selection = window.getSelection();
     if (!selection || selection.isCollapsed) {
@@ -236,85 +269,27 @@ export function PapersPane({
     });
   };
 
-  // Action: "Ask" -> opens global dock and inserts quote into paper's thread
+  // 1. Passage Action: "Ask" -> opens Examiner dock with quote and context
   const handleActionAsk = () => {
     if (!selectionRange || !activePaperId) return;
     onAskAboutSelection(selectionRange.text, activePaperId);
     setSelectionRange(null);
-  };
-
-  // Action: "+ Evidence" -> opens popover
-  const handleActionOpenEvidence = () => {
-    if (!selectionRange) return;
-    setIsEvidencePopoverOpen(true);
-    setSupportReasonText('');
-    setPopoverClaimId(selectedClaimId || allClaims[0]?.id || 'c1');
-  };
-
-  // Action: "Highlight" -> marks in left rail
-  const handleActionHighlight = () => {
-    if (!selectionRange || !activePaper) return;
-    const yPercent = Math.min(
-      Math.max(Math.round(((selectionRange.pageNumber || currentPage) / Math.max(totalPages, 1)) * 100), 5),
-      95
-    );
-
-    const newMark: LeftRailMark = {
-      id: `mark-${Date.now()}`,
-      paragraphId: selectionRange.paragraphId || `par-${Date.now()}`,
-      yPercent,
-      pageNumber: selectionRange.pageNumber || currentPage,
-      type: 'emerald',
-      label: 'User highlight',
-      snippet: selectionRange.text,
-      claimId: selectedClaimId || undefined,
-    };
-
-    onAddMark(activePaper.id, newMark);
-    setSelectionRange(null);
     window.getSelection()?.removeAllRanges();
   };
 
-  // Submit "+ Evidence" Popover
-  const handleCreateEvidence = () => {
-    if (!selectionRange || !supportReasonText.trim() || !activePaper) return;
+  // 2. Passage Action: "Make finding" -> opens FindingCaptureSlip
+  const handleActionMakeFinding = () => {
+    if (!selectionRange) return;
+    setIsFindingSlipOpen(true);
+  };
 
+  // 3. Passage Action: "Highlight" -> creates local reading mark & increments count
+  const handleActionHighlight = () => {
+    if (!selectionRange || !activePaper) return;
     const pageNum = selectionRange.pageNumber || currentPage;
     const yPercent = Math.min(
       Math.max(Math.round((pageNum / Math.max(totalPages, 1)) * 100), 5),
       95
-    );
-
-    if (popoverClaimId === 'open_problems_survey') {
-      if (onAddOpenProblem) {
-        const citation = `${activePaper.authors.split('&')[0].trim()} et al. ${activePaper.year} (p.${pageNum}): "${selectionRange.text.slice(0, 60)}..."`;
-        onAddOpenProblem(supportReasonText.trim(), citation);
-      }
-
-      const newMark: LeftRailMark = {
-        id: `mark-${Date.now()}`,
-        paragraphId: selectionRange.paragraphId || `par-${Date.now()}`,
-        yPercent,
-        pageNumber: pageNum,
-        type: 'amber',
-        label: `Open problem: ${supportReasonText.slice(0, 20)}...`,
-        snippet: selectionRange.text,
-      };
-
-      onAddMark(activePaper.id, newMark);
-      setIsEvidencePopoverOpen(false);
-      setSelectionRange(null);
-      setSupportReasonText('');
-      window.getSelection()?.removeAllRanges();
-      return;
-    }
-
-    // Add evidence to graph state
-    onAddEvidenceToClaim(
-      popoverClaimId,
-      selectionRange.text.slice(0, 60),
-      `${activePaper.authors.split('&')[0].trim()} et al. ${activePaper.year} (p.${pageNum})`,
-      supportReasonText.trim()
     );
 
     const newMark: LeftRailMark = {
@@ -323,21 +298,89 @@ export function PapersPane({
       yPercent,
       pageNumber: pageNum,
       type: 'emerald',
-      label: `Evidence: ${supportReasonText.slice(0, 20)}...`,
+      label: 'Local reading highlight',
       snippet: selectionRange.text,
-      claimId: popoverClaimId,
+      claimId: undefined, // Pure highlight, not linked to a claim
     };
 
     onAddMark(activePaper.id, newMark);
-    setIsEvidencePopoverOpen(false);
+    setSessionHighlightCount((prev) => prev + 1);
     setSelectionRange(null);
-    setSupportReasonText('');
     window.getSelection()?.removeAllRanges();
+  };
+
+  // Submit Finding from FindingCaptureSlip
+  const handleSubmitFinding = (draft: FindingDraftPayload) => {
+    if (!activePaper) return;
+
+    const pageNum = draft.pageNumber || currentPage;
+    const yPercent = Math.min(
+      Math.max(Math.round((pageNum / Math.max(totalPages, 1)) * 100), 5),
+      95
+    );
+
+    const citation = `${activePaper.authors.split('&')[0].trim()} et al. (${activePaper.year}) · page ${pageNum}`;
+
+    // Add evidence finding to graph state
+    onAddEvidenceToClaim(
+      draft.claimId,
+      draft.finding,
+      citation,
+      draft.userReason
+    );
+
+    // Create mark on the linked rail
+    const newMark: LeftRailMark = {
+      id: `mark-${Date.now()}`,
+      paragraphId: draft.paragraphId || `par-${Date.now()}`,
+      yPercent,
+      pageNumber: pageNum,
+      type: 'emerald',
+      label: `Finding: ${draft.finding.slice(0, 32)}...`,
+      snippet: draft.passageText,
+      claimId: draft.claimId,
+    };
+
+    onAddMark(activePaper.id, newMark);
+    setSessionFindingCount((prev) => prev + 1);
+
+    // Find claim text for confirmation line
+    const targetClaim = allClaims.find((c) => c.id === draft.claimId);
+    const claimText = targetClaim ? targetClaim.text : 'selected claim';
+
+    // Show Confirmation banner with Undo
+    setConfirmationToast({
+      id: `toast-${Date.now()}`,
+      claimId: draft.claimId,
+      evidenceId: `paper-ev-${Date.now()}`, // Generated in handleAddEvidenceFromPaper
+      claimText,
+      findingTitle: draft.finding,
+      timestamp: Date.now(),
+    });
+
+    // Close slip & clear selection
+    setIsFindingSlipOpen(false);
+    setSelectionRange(null);
+    window.getSelection()?.removeAllRanges();
+  };
+
+  // Handle Undo on Confirmation Toast
+  const handleUndoToast = () => {
+    if (!confirmationToast) return;
+
+    if (onRemoveEvidence) {
+      onRemoveEvidence(confirmationToast.claimId, confirmationToast.evidenceId);
+    }
+    setSessionFindingCount((prev) => Math.max(0, prev - 1));
+    setConfirmationToast(null);
   };
 
   // Scroll to mark in reader
   const handleScrollToMark = (mark: LeftRailMark) => {
     setTargetedMark(mark);
+    if (mark.pageNumber) {
+      setCurrentPage(mark.pageNumber);
+    }
     if (viewMode === 'text' || viewMode === 'abstract') {
       const el = document.getElementById(mark.paragraphId);
       if (el) {
@@ -371,23 +414,53 @@ export function PapersPane({
     }
   };
 
+  // Compute number of findings in current paper for tabs badge
+  const getPaperFindingsCount = (paperId: string) => {
+    const paper = papers.find((p) => p.id === paperId);
+    if (!paper) return 0;
+    let count = 0;
+    questions.forEach((q) => {
+      q.claims.forEach((c) => {
+        c.evidence.forEach((e) => {
+          if (
+            (e.paperId && e.paperId === paper.id) ||
+            (e.citation && e.citation.includes(paper.authors.split('&')[0].trim()))
+          ) {
+            count++;
+          }
+        });
+      });
+    });
+    return count;
+  };
+
   // Active buffer for PDF rendering
   const activePdfData = activePaper ? pdfBuffers[activePaper.id] || activePaper.pdfData : undefined;
 
   return (
-    <div id="papers-pane" className="flex flex-col h-full w-full bg-[#fcfcfc] dark:bg-[#141414] overflow-hidden">
-      {/* 1. PAPER TAB STRIP & TOOLBAR */}
+    <div id="read-pane" className="flex flex-col h-full w-full bg-paper overflow-hidden">
+      {/* 1. COMPACT READ HEADER */}
+      <ReadHeader
+        sessionFindingCount={sessionFindingCount}
+        sessionHighlightCount={sessionHighlightCount}
+        activePaperTitle={activePaper?.title}
+        onOpenInfo={() => setIsInfoModalOpen(true)}
+      />
+
+      {/* 2. MULTI-PAPER TAB STRIP */}
       <div
-        id="paper-picker-strip"
-        className="h-9 px-3 bg-[#f5f5f5] dark:bg-[#181818] border-b border-[#ececec] dark:border-[#262626] flex items-center justify-between shrink-0 select-none overflow-x-auto"
+        id="paper-tab-strip"
+        className="h-10 px-3 bg-surface border-b border-rule flex items-center justify-between shrink-0 select-none overflow-x-auto gap-2"
       >
-        <div className="flex items-center gap-1.5 overflow-x-auto py-1">
+        {/* Left: Open Paper Tabs */}
+        <div className="flex items-center gap-1.5 overflow-x-auto py-1 flex-1 min-w-0">
           {openPaperIds.map((pId) => {
             const paper = papers.find((candidate) => candidate.id === pId);
             if (!paper) return null;
             const isActive = paper.id === activePaperId;
-            const truncatedTitle =
-              paper.title.length > 22 ? `${paper.title.slice(0, 22)}...` : paper.title;
+            const findingsCount = getPaperFindingsCount(paper.id);
+            const shortTitle =
+              paper.title.length > 24 ? `${paper.title.slice(0, 24)}...` : paper.title;
 
             return (
               <div
@@ -401,23 +474,38 @@ export function PapersPane({
                   })
                 }
                 onClick={() => onSelectPaperTab(paper.id)}
-                className={`group flex items-center gap-1.5 px-3 py-1 text-[12px] rounded-t cursor-grab active:cursor-grabbing transition-colors shrink-0 max-w-[240px] ${
+                className={`group flex items-center gap-2 px-3 py-1.5 text-[12px] rounded-[2px] cursor-grab active:cursor-grabbing transition-colors shrink-0 max-w-[260px] border ${
                   isActive
-                    ? 'bg-white dark:bg-[#1f1f1f] border-b-2 border-stone-900 dark:border-white text-stone-900 dark:text-stone-100 font-medium shadow-2xs'
-                    : 'bg-transparent border-transparent text-stone-500 dark:text-stone-400 hover:text-stone-900 dark:hover:text-white hover:bg-stone-200/50 dark:hover:bg-[#252525]'
+                    ? 'bg-paper text-ink border-rule border-b-transparent font-medium shadow-[0_1px_2px_rgba(0,0,0,0.03)]'
+                    : 'bg-transparent border-transparent text-ink-muted hover:text-ink hover:bg-paper/60'
                 }`}
               >
-                <FileText className="w-3.5 h-3.5 shrink-0 opacity-70 text-stone-700 dark:text-stone-300" />
-                <span className="truncate" title={paper.title}>
-                  {truncatedTitle}
+                <FileText className="w-3.5 h-3.5 shrink-0 text-ink-muted" />
+                <span className="truncate font-serif text-[13px]" title={paper.title}>
+                  {shortTitle}
                 </span>
+                <span className="text-[10px] font-mono text-ink-muted/80 shrink-0">
+                  ({paper.year})
+                </span>
+
+                {/* Finding count badge if paper has produced findings */}
+                {findingsCount > 0 && (
+                  <span
+                    title={`${findingsCount} findings attached to claims`}
+                    className="inline-flex items-center justify-center px-1.5 py-0.2 text-[9px] font-mono font-semibold bg-surface border border-rule text-ink rounded-full"
+                  >
+                    {findingsCount}
+                  </span>
+                )}
+
                 <button
+                  type="button"
                   onClick={(e) => {
                     e.stopPropagation();
                     onClosePaper(paper.id);
                   }}
                   title="Close paper tab"
-                  className="opacity-0 group-hover:opacity-100 hover:text-stone-900 dark:hover:text-white p-0.5 rounded transition-opacity cursor-pointer ml-0.5"
+                  className="opacity-0 group-hover:opacity-100 hover:text-ink hover:bg-surface p-0.5 rounded-[2px] transition-opacity cursor-pointer ml-0.5"
                 >
                   <X className="w-3 h-3" />
                 </button>
@@ -428,30 +516,31 @@ export function PapersPane({
           {/* "+" Button to open paper dropdown */}
           <div className="relative shrink-0" ref={paperPickerDropdownRef}>
             <button
-              id="add-paper-tab-btn"
+              id="open-paper-dropdown-btn"
               onClick={() => setIsPaperPickerOpen(!isPaperPickerOpen)}
               title="Open or Import Papers"
-              className="p-1 text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-white hover:bg-stone-200/60 dark:hover:bg-[#252525] rounded cursor-pointer transition-colors flex items-center justify-center"
+              className="px-2 py-1 text-ink-muted hover:text-ink hover:bg-paper rounded-[2px] cursor-pointer transition-colors flex items-center gap-1 text-[11px] font-sans border border-rule/60"
             >
-              <Plus className="w-4 h-4" />
+              <Plus className="w-3.5 h-3.5" />
+              <span>Open paper</span>
             </button>
 
             {/* Paper Catalog & Action Dropdown */}
             {isPaperPickerOpen && (
               <div
                 id="paper-catalog-dropdown"
-                className="absolute left-0 top-8 w-80 max-h-96 overflow-y-auto bg-white dark:bg-[#1e1e1e] rounded-xl border border-stone-200 dark:border-stone-800 p-2.5 z-50 shadow-2xl space-y-2.5 divide-y divide-stone-100 dark:divide-stone-800"
+                className="absolute left-0 top-9 w-84 max-h-96 overflow-y-auto bg-paper border border-rule rounded-[2px] p-2.5 z-50 shadow-xl space-y-2.5 divide-y divide-rule"
               >
-                {/* Direct Actions: Upload PDF & Import arXiv */}
+                {/* Actions: Upload PDF & Import arXiv */}
                 <div className="space-y-1 pb-2">
                   <button
                     onClick={() => {
                       setIsPaperPickerOpen(false);
                       setIsUploadModalOpen(true);
                     }}
-                    className="w-full text-left px-2.5 py-2 rounded-lg text-xs font-medium bg-stone-50 dark:bg-[#252525] hover:bg-stone-100 dark:hover:bg-[#2c2c2c] text-stone-800 dark:text-stone-200 flex items-center gap-2 cursor-pointer transition-colors"
+                    className="w-full text-left px-2.5 py-2 rounded-[2px] text-xs font-medium bg-surface hover:bg-paper text-ink flex items-center gap-2 cursor-pointer transition-colors border border-rule/50"
                   >
-                    <Upload className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                    <Upload className="w-3.5 h-3.5 text-ink-muted" />
                     <span>Upload Local PDF Document...</span>
                   </button>
 
@@ -460,22 +549,23 @@ export function PapersPane({
                       setIsPaperPickerOpen(false);
                       setIsArxivModalOpen(true);
                     }}
-                    className="w-full text-left px-2.5 py-2 rounded-lg text-xs font-medium bg-stone-50 dark:bg-[#252525] hover:bg-stone-100 dark:hover:bg-[#2c2c2c] text-stone-800 dark:text-stone-200 flex items-center gap-2 cursor-pointer transition-colors"
+                    className="w-full text-left px-2.5 py-2 rounded-[2px] text-xs font-medium bg-surface hover:bg-paper text-ink flex items-center gap-2 cursor-pointer transition-colors border border-rule/50"
                   >
-                    <Globe className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
-                    <span>Fetch from arXiv or Web URL...</span>
+                    <Globe className="w-3.5 h-3.5 text-ink-muted" />
+                    <span>Fetch arXiv / Web URL...</span>
                   </button>
                 </div>
 
-                {/* Papers currently linked in the graph */}
+                {/* Workspace Papers Catalog */}
                 <div className="pt-2">
-                  <div className="px-1 mb-1.5 text-[10px] font-bold uppercase tracking-wider text-stone-400 dark:text-stone-500">
+                  <div className="px-1 mb-1.5 text-[10px] font-mono font-medium uppercase tracking-wider text-ink-muted">
                     Workspace Papers ({papers.length})
                   </div>
 
                   <div className="space-y-1 max-h-60 overflow-y-auto">
                     {papers.map((p) => {
                       const isOpen = openPaperIds.includes(p.id);
+                      const fCount = getPaperFindingsCount(p.id);
                       return (
                         <button
                           key={p.id}
@@ -484,14 +574,21 @@ export function PapersPane({
                             onOpenPaper(p.id);
                             setIsPaperPickerOpen(false);
                           }}
-                          className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex flex-col transition-colors ${
+                          className={`w-full text-left px-2.5 py-1.5 rounded-[2px] text-xs flex flex-col transition-colors ${
                             isOpen
-                              ? 'opacity-40 cursor-not-allowed text-stone-400'
-                              : 'hover:bg-stone-100 dark:hover:bg-[#2a2a2a] text-stone-800 dark:text-stone-200 cursor-pointer'
+                              ? 'opacity-40 cursor-not-allowed text-ink-muted bg-surface/50'
+                              : 'hover:bg-surface text-ink cursor-pointer'
                           }`}
                         >
-                          <span className="font-medium truncate">{p.title}</span>
-                          <span className="text-[10px] text-stone-500 truncate">
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="font-serif text-[13px] text-ink truncate">{p.title}</span>
+                            {fCount > 0 && (
+                              <span className="text-[9px] font-mono text-ink-muted">
+                                {fCount} {fCount === 1 ? 'finding' : 'findings'}
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[10px] font-mono text-ink-muted truncate">
                             {p.authors} ({p.year})
                           </span>
                         </button>
@@ -504,120 +601,178 @@ export function PapersPane({
           </div>
         </div>
 
-        {/* Quick Action Buttons on right side of tab strip */}
-        <div className="flex items-center gap-2 shrink-0">
-          <button
+        {/* Quick Action Buttons on right */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <Button
+            variant="quiet"
+            size="sm"
             onClick={() => setIsUploadModalOpen(true)}
             title="Upload PDF File"
-            className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-stone-600 dark:text-stone-300 hover:text-stone-900 dark:hover:text-white hover:bg-stone-200/60 dark:hover:bg-[#252525] rounded transition-colors cursor-pointer"
           >
             <Upload className="w-3 h-3" />
-            <span className="hidden sm:inline">Upload PDF</span>
-          </button>
-          <button
+            <span className="hidden md:inline">Upload PDF</span>
+          </Button>
+          <Button
+            variant="quiet"
+            size="sm"
             onClick={() => setIsArxivModalOpen(true)}
             title="Open from arXiv / Web URL"
-            className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-stone-600 dark:text-stone-300 hover:text-stone-900 dark:hover:text-white hover:bg-stone-200/60 dark:hover:bg-[#252525] rounded transition-colors cursor-pointer"
           >
             <Globe className="w-3 h-3" />
-            <span className="hidden sm:inline">arXiv / URL</span>
-          </button>
+            <span className="hidden md:inline">arXiv / URL</span>
+          </Button>
         </div>
       </div>
 
-      {/* 2. MAIN TWO-PANE VIEW: Real PDF Reader or Empty State */}
-      {!activePaper ? (
+      {/* 3. CONFIRMATION BANNER WITH UNDO */}
+      {confirmationToast && (
         <div
-          id="papers-empty-state"
-          className="flex-1 flex flex-col items-center justify-center p-8 text-center space-y-5 bg-white dark:bg-[#181818]"
+          id="finding-confirmation-banner"
+          className="px-4 py-2 bg-surface border-b border-rule flex items-center justify-between text-xs animate-in fade-in slide-in-from-top-1 duration-150 select-none shrink-0"
         >
-          <div className="w-14 h-14 rounded-2xl bg-stone-100 dark:bg-[#242424] border border-stone-200 dark:border-stone-800 flex items-center justify-center text-stone-500 dark:text-stone-400 shadow-xs">
-            <FileText className="w-7 h-7" />
-          </div>
-          <div className="space-y-1.5 max-w-sm">
-            <h2 className="text-sm font-semibold text-stone-900 dark:text-stone-100">
-              Epistemic Research Paper Reader
-            </h2>
-            <p className="text-xs text-stone-500 dark:text-stone-400">
-              Open a real PDF document to extract evidence nodes, verify reasoning with the assistant, and link passages directly into your epistemic graph.
-            </p>
+          <div className="flex items-center gap-2 truncate pr-4">
+            <CheckCircle className="w-3.5 h-3.5 text-holds shrink-0" />
+            <span className="text-ink-muted">Finding added under:</span>
+            <span className="font-serif text-ink truncate">"{confirmationToast.claimText}"</span>
           </div>
 
-          <div className="flex items-center gap-2.5 pt-1">
+          <div className="flex items-center gap-2 shrink-0">
             <button
-              onClick={() => setIsUploadModalOpen(true)}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium bg-stone-900 dark:bg-white text-white dark:text-stone-900 hover:bg-stone-800 dark:hover:bg-stone-100 transition-colors cursor-pointer shadow-xs"
+              onClick={handleUndoToast}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-[2px] bg-paper border border-rule hover:border-missing text-ink hover:text-missing font-mono text-[11px] cursor-pointer transition-colors"
             >
-              <Upload className="w-3.5 h-3.5" />
-              <span>Upload PDF</span>
+              <RotateCcw className="w-3 h-3" />
+              <span>Undo</span>
             </button>
             <button
-              onClick={() => setIsArxivModalOpen(true)}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium bg-stone-100 dark:bg-[#2a2a2a] text-stone-800 dark:text-stone-200 hover:bg-stone-200 dark:hover:bg-[#333] transition-colors cursor-pointer"
+              onClick={() => setConfirmationToast(null)}
+              className="p-1 text-ink-muted hover:text-ink cursor-pointer"
             >
-              <Globe className="w-3.5 h-3.5" />
-              <span>Fetch arXiv Paper</span>
+              <X className="w-3 h-3" />
             </button>
           </div>
         </div>
+      )}
+
+      {/* 4. MAIN TWO-PANE WORKSPACE: Viewer + Finding Slip */}
+      {!activePaper ? (
+        <div
+          id="papers-empty-state"
+          className="flex-1 flex flex-col items-center justify-center p-8 text-center space-y-5 bg-paper"
+        >
+          <div className="w-12 h-12 rounded-[2px] bg-surface border border-rule flex items-center justify-center text-ink-muted">
+            <BookOpen className="w-6 h-6" />
+          </div>
+          <div className="space-y-1.5 max-w-md">
+            <h2 className="font-serif text-[18px] text-ink font-normal">
+              No Paper Selected
+            </h2>
+            <p className="text-xs text-ink-muted leading-relaxed font-sans">
+              The reader's purpose is to produce findings. Open a research paper to select passages, write findings, and link them to your claims.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 pt-2">
+            <Button
+              variant="primary"
+              size="base"
+              onClick={() => setIsPaperPickerOpen(true)}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Open from Workspace</span>
+            </Button>
+            <Button
+              variant="secondary"
+              size="base"
+              onClick={() => setIsUploadModalOpen(true)}
+            >
+              <Upload className="w-3.5 h-3.5" />
+              <span>Upload PDF</span>
+            </Button>
+            <Button
+              variant="secondary"
+              size="base"
+              onClick={() => setIsArxivModalOpen(true)}
+            >
+              <Globe className="w-3.5 h-3.5" />
+              <span>Fetch arXiv</span>
+            </Button>
+          </div>
+        </div>
       ) : (
-        <div className="flex-1 flex w-full h-[calc(100%-2.25rem)] overflow-hidden">
-          {/* === DOCUMENT READER === */}
+        <div className="flex-1 flex w-full h-full overflow-hidden">
+          {/* Main Paper Reader Section */}
           <section
             aria-label="Document Reader"
-            className="w-full h-full flex flex-col bg-white dark:bg-[#181818] overflow-hidden"
+            className="flex-1 h-full flex flex-col bg-paper overflow-hidden min-w-0"
           >
-            {/* Slim toolbar row above the document */}
+            {/* Restrained Viewer Toolbar */}
             <div
               id="document-toolbar"
-              className="h-10 px-4 border-b border-[#ececec] dark:border-[#262626] bg-white dark:bg-[#181818] flex items-center justify-between shrink-0 select-none"
+              className="h-10 px-4 border-b border-rule bg-paper flex items-center justify-between shrink-0 select-none gap-3"
             >
-              {/* Segmented view toggle: "Real PDF | Structured Text | Abstract" */}
-              <div className="flex items-center bg-stone-100 dark:bg-[#242424] p-0.5 rounded-lg text-xs">
+              {/* Segmented View Mode Toggle */}
+              <div className="flex items-center bg-surface p-0.5 rounded-[2px] border border-rule text-xs">
                 <button
                   onClick={() => setViewMode('pdf')}
-                  className={`px-2.5 py-1 rounded-md cursor-pointer transition-all flex items-center gap-1.5 ${
+                  className={`px-2.5 py-1 rounded-[2px] cursor-pointer transition-all flex items-center gap-1.5 ${
                     viewMode === 'pdf'
-                      ? 'bg-white dark:bg-[#1c1c1c] text-stone-900 dark:text-white font-medium shadow-xs'
-                      : 'text-stone-500 dark:text-stone-400 hover:text-stone-900 dark:hover:text-white'
+                      ? 'bg-paper text-ink font-medium shadow-[0_1px_1px_rgba(0,0,0,0.04)]'
+                      : 'text-ink-muted hover:text-ink'
                   }`}
                 >
-                  <FileText className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                  <span>Real PDF Reader</span>
+                  <FileText className="w-3 h-3 text-ink-muted" />
+                  <span>PDF Viewer</span>
                 </button>
                 <button
                   onClick={() => setViewMode('text')}
-                  className={`px-2.5 py-1 rounded-md cursor-pointer transition-all flex items-center gap-1.5 ${
+                  className={`px-2.5 py-1 rounded-[2px] cursor-pointer transition-all flex items-center gap-1.5 ${
                     viewMode === 'text'
-                      ? 'bg-white dark:bg-[#1c1c1c] text-stone-900 dark:text-white font-medium shadow-xs'
-                      : 'text-stone-500 dark:text-stone-400 hover:text-stone-900 dark:hover:text-white'
+                      ? 'bg-paper text-ink font-medium shadow-[0_1px_1px_rgba(0,0,0,0.04)]'
+                      : 'text-ink-muted hover:text-ink'
                   }`}
                 >
-                  <FileCode className="w-3.5 h-3.5 text-stone-500" />
+                  <FileCode className="w-3 h-3 text-ink-muted" />
                   <span>Structured Text</span>
                 </button>
                 <button
                   onClick={() => setViewMode('abstract')}
-                  className={`px-2.5 py-1 rounded-md cursor-pointer transition-all ${
+                  className={`px-2.5 py-1 rounded-[2px] cursor-pointer transition-all ${
                     viewMode === 'abstract'
-                      ? 'bg-white dark:bg-[#1c1c1c] text-stone-900 dark:text-white font-medium shadow-xs'
-                      : 'text-stone-500 dark:text-stone-400 hover:text-stone-900 dark:hover:text-white'
+                      ? 'bg-paper text-ink font-medium shadow-[0_1px_1px_rgba(0,0,0,0.04)]'
+                      : 'text-ink-muted hover:text-ink'
                   }`}
                 >
-                  Abstract
+                  <span>Abstract</span>
                 </button>
               </div>
 
-              {/* Page indicator & borderless zoom/download icons */}
-              <div className="flex items-center gap-3 text-xs text-stone-600 dark:text-stone-400">
-                {/* Page Navigation Indicator */}
+              {/* Page Nav, Zoom, Info & Download */}
+              <div className="flex items-center gap-2.5 text-xs text-ink-muted">
+                {/* Page Navigation */}
                 <div className="flex items-center gap-1 font-mono text-[11px]">
-                  <span className="text-stone-500 dark:text-stone-400">
-                    Page {currentPage} / {totalPages || activePaper.pageCount}
+                  <button
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage <= 1}
+                    title="Previous page"
+                    className="p-1 hover:text-ink hover:bg-surface rounded-[2px] cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                  </button>
+                  <span className="text-ink">
+                    {currentPage} / {totalPages || activePaper.pageCount}
                   </span>
+                  <button
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={currentPage >= totalPages}
+                    title="Next page"
+                    className="p-1 hover:text-ink hover:bg-surface rounded-[2px] cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
                 </div>
 
-                <div className="w-[1px] h-3.5 bg-stone-200 dark:bg-stone-800" />
+                <div className="w-[1px] h-3.5 bg-rule" />
 
                 {/* Zoom Controls */}
                 <div className="flex items-center gap-1">
@@ -626,11 +781,11 @@ export function PapersPane({
                       onSaveZoomLevel(activePaper.id, Math.max(currentZoomLevel - 15, 60))
                     }
                     title="Zoom out"
-                    className="p-1 hover:text-stone-900 dark:hover:text-white hover:bg-stone-100 dark:hover:bg-[#252525] rounded cursor-pointer transition-colors"
+                    className="p-1 hover:text-ink hover:bg-surface rounded-[2px] cursor-pointer transition-colors"
                   >
                     <ZoomOut className="w-3.5 h-3.5" />
                   </button>
-                  <span className="text-[11px] font-mono w-9 text-center">
+                  <span className="text-[11px] font-mono w-9 text-center text-ink">
                     {currentZoomLevel}%
                   </span>
                   <button
@@ -638,59 +793,46 @@ export function PapersPane({
                       onSaveZoomLevel(activePaper.id, Math.min(currentZoomLevel + 15, 180))
                     }
                     title="Zoom in"
-                    className="p-1 hover:text-stone-900 dark:hover:text-white hover:bg-stone-100 dark:hover:bg-[#252525] rounded cursor-pointer transition-colors"
+                    className="p-1 hover:text-ink hover:bg-surface rounded-[2px] cursor-pointer transition-colors"
                   >
                     <ZoomIn className="w-3.5 h-3.5" />
                   </button>
                 </div>
 
-                <div className="w-[1px] h-3.5 bg-stone-200 dark:bg-stone-800" />
+                <div className="w-[1px] h-3.5 bg-rule" />
 
-                {/* Download PDF Binary */}
+                {/* Paper Info / Metadata Modal trigger */}
+                <button
+                  onClick={() => setIsInfoModalOpen(true)}
+                  title="Paper provenance & metadata"
+                  className="p-1 hover:text-ink hover:bg-surface rounded-[2px] cursor-pointer transition-colors flex items-center gap-1"
+                >
+                  <Info className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline font-sans text-[11px]">Info</span>
+                </button>
+
+                {/* Download PDF */}
                 <button
                   onClick={handleDownloadPdf}
-                  title="Download Real PDF"
-                  className="p-1.5 hover:text-stone-900 dark:hover:text-white hover:bg-stone-100 dark:hover:bg-[#252525] rounded cursor-pointer transition-colors flex items-center gap-1"
+                  title="Download PDF"
+                  className="p-1 hover:text-ink hover:bg-surface rounded-[2px] cursor-pointer transition-colors"
                 >
                   <Download className="w-3.5 h-3.5" />
                 </button>
               </div>
             </div>
 
-            {/* Document Content Area with 40px Left Rail */}
-            <div className="relative flex-1 flex w-full overflow-hidden bg-[#f4f4f5] dark:bg-[#121212]">
-              {/* 40px Left Rail showing amber/emerald marks */}
-              <div
-                id="document-left-rail"
-                className="w-10 h-full border-r border-[#ececec] dark:border-[#262626] bg-white dark:bg-[#161616] relative shrink-0 select-none z-20"
-              >
-                {currentMarks.map((mark) => (
-                  <button
-                    key={mark.id}
-                    onClick={() => handleScrollToMark(mark)}
-                    title={`${mark.label}: ${mark.snippet.slice(0, 40)}...`}
-                    style={{ top: `${mark.yPercent}%` }}
-                    className="absolute left-1/2 -translate-x-1/2 -translate-y-1/2 p-1 group cursor-pointer"
-                  >
-                    <div
-                      className={`w-3 h-3 rounded-full transition-transform group-hover:scale-135 shadow-xs ${
-                        mark.type === 'emerald'
-                          ? 'bg-emerald-500 ring-2 ring-emerald-200 dark:ring-emerald-950'
-                          : 'bg-amber-500 ring-2 ring-amber-200 dark:ring-amber-950'
-                      }`}
-                    />
-                    {/* Hover tooltip for rail mark */}
-                    <div className="hidden group-hover:block absolute left-7 top-1/2 -translate-y-1/2 bg-stone-900 dark:bg-stone-800 text-white text-[10px] px-2.5 py-1 rounded-md whitespace-nowrap z-40 pointer-events-none shadow-lg border border-stone-800">
-                      <p className="font-semibold">{mark.label}</p>
-                      <p className="text-stone-400 font-mono text-[9px]">
-                        {mark.pageNumber ? `Page ${mark.pageNumber}` : 'Passage'}
-                      </p>
-                    </div>
-                  </button>
-                ))}
-              </div>
+            {/* Document Content with LinkedPassageRail */}
+            <div className="relative flex-1 flex w-full overflow-hidden bg-surface">
+              {/* Linked Passage Rail */}
+              <LinkedPassageRail
+                marks={currentMarks}
+                questions={questions}
+                onScrollToMark={handleScrollToMark}
+                onNavigateToClaim={onNavigateToClaim}
+              />
 
-              {/* Viewport: Either Real PDF Viewer or Structured Text Viewer */}
+              {/* Viewport: Real PDF Viewer or Text Fallback */}
               {viewMode === 'pdf' ? (
                 <div className="relative flex-1 h-full w-full overflow-hidden">
                   <RealPdfViewer
@@ -704,7 +846,7 @@ export function PapersPane({
                     }}
                     onTextSelected={(payload) => {
                       if (!payload) {
-                        if (!isEvidencePopoverOpen) setSelectionRange(null);
+                        if (!isFindingSlipOpen) setSelectionRange(null);
                         return;
                       }
                       setSelectionRange({
@@ -718,128 +860,40 @@ export function PapersPane({
                     targetMark={targetedMark}
                   />
 
-                  {/* Floating Selection Toolbar over PDF */}
-                  {selectionRange && !isEvidencePopoverOpen && (
+                  {/* Passage Selection Floating Toolbar over PDF */}
+                  {selectionRange && !isFindingSlipOpen && (
                     <div
                       id="selection-toolbar"
                       style={{
                         top: `${selectionRange.top}px`,
                         left: `${selectionRange.left}px`,
                       }}
-                      className="absolute -translate-x-1/2 -translate-y-full mb-2 z-40 flex items-center bg-stone-900 dark:bg-[#282828] text-white rounded-xl p-1 shadow-2xl border border-stone-700 animate-in fade-in zoom-in-95 duration-100 select-none"
+                      className="absolute -translate-x-1/2 -translate-y-full mb-2 z-40 flex items-center bg-ink text-paper rounded-[2px] p-1 shadow-xl border border-ink/80 animate-in fade-in zoom-in-95 duration-100 select-none gap-0.5"
                     >
                       <button
                         onClick={handleActionAsk}
-                        className="px-2.5 py-1 text-xs font-medium hover:bg-stone-800 dark:hover:bg-stone-700 rounded-lg transition-colors cursor-pointer"
+                        title="Ask about passage in Examiner thread"
+                        className="px-2.5 py-1 text-xs font-sans hover:bg-paper/20 rounded-[2px] transition-colors cursor-pointer"
                       >
                         Ask
                       </button>
-                      <div className="w-[1px] h-3 bg-stone-700 mx-0.5" />
+                      <div className="w-[1px] h-3 bg-paper/30 mx-0.5" />
                       <button
-                        onClick={handleActionOpenEvidence}
-                        className="px-2.5 py-1 text-xs font-medium hover:bg-stone-800 dark:hover:bg-stone-700 rounded-lg text-emerald-400 hover:text-emerald-300 transition-colors cursor-pointer flex items-center gap-1"
+                        onClick={handleActionMakeFinding}
+                        title="Extract finding and attach to a claim"
+                        className="px-2.5 py-1 text-xs font-medium font-sans hover:bg-paper/20 rounded-[2px] text-paper transition-colors cursor-pointer flex items-center gap-1"
                       >
-                        <span>+ Evidence</span>
+                        <Quote className="w-3 h-3" />
+                        <span>Make finding</span>
                       </button>
-                      <div className="w-[1px] h-3 bg-stone-700 mx-0.5" />
+                      <div className="w-[1px] h-3 bg-paper/30 mx-0.5" />
                       <button
                         onClick={handleActionHighlight}
-                        className="px-2.5 py-1 text-xs font-medium hover:bg-stone-800 dark:hover:bg-stone-700 rounded-lg text-amber-400 hover:text-amber-300 transition-colors cursor-pointer"
+                        title="Create local reading highlight"
+                        className="px-2.5 py-1 text-xs font-sans hover:bg-paper/20 text-paper/80 hover:text-paper rounded-[2px] transition-colors cursor-pointer"
                       >
                         Highlight
                       </button>
-                    </div>
-                  )}
-
-                  {/* "+ Evidence" Small Popover for Real PDF */}
-                  {selectionRange && isEvidencePopoverOpen && (
-                    <div
-                      id="evidence-popover"
-                      style={{
-                        top: `${selectionRange.top}px`,
-                        left: `${selectionRange.left}px`,
-                      }}
-                      className="absolute -translate-x-1/2 -translate-y-full mb-2 z-50 w-84 bg-white dark:bg-[#1e1e1e] border border-stone-200 dark:border-stone-800 rounded-2xl p-4 shadow-2xl space-y-3 animate-in fade-in zoom-in-95 duration-100 select-none"
-                    >
-                      <div className="flex items-center justify-between border-b border-stone-100 dark:border-stone-800 pb-2">
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-stone-900 dark:text-stone-100">
-                          Create Evidence from PDF
-                        </span>
-                        <button
-                          onClick={() => setIsEvidencePopoverOpen(false)}
-                          className="text-stone-400 hover:text-stone-900 dark:hover:text-white p-0.5 rounded cursor-pointer"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-
-                      {/* Selected text */}
-                      <div className="space-y-1">
-                        <span className="text-[10px] uppercase font-bold text-stone-500 dark:text-stone-400">
-                          Selected passage (p.{selectionRange.pageNumber || currentPage})
-                        </span>
-                        <div className="bg-stone-50 dark:bg-[#242424] border border-stone-200 dark:border-stone-700 rounded-lg p-2 text-xs text-stone-700 dark:text-stone-300 line-clamp-3 italic">
-                          "{selectionRange.text}"
-                        </div>
-                      </div>
-
-                      {/* Dropdown "Under which claim?" */}
-                      <div className="space-y-1">
-                        <label className="text-[10px] uppercase font-bold text-stone-500 dark:text-stone-400">
-                          Under which claim?
-                        </label>
-                        <select
-                          value={popoverClaimId}
-                          onChange={(e) => setPopoverClaimId(e.target.value)}
-                          className="w-full bg-stone-50 dark:bg-[#252525] border border-stone-200 dark:border-stone-700 rounded-lg px-2.5 py-1.5 text-xs text-stone-900 dark:text-stone-100 focus:outline-hidden"
-                        >
-                          <option value="open_problems_survey">
-                            -&gt; Open problems (no claim yet)
-                          </option>
-                          {allClaims.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.text.length > 40 ? `${c.text.slice(0, 40)}...` : c.text}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      {/* Single required text field */}
-                      <div className="space-y-1">
-                        <label className="text-[10px] uppercase font-bold text-stone-500 dark:text-stone-400">
-                          {popoverClaimId === 'open_problems_survey'
-                            ? 'What is still open here? *'
-                            : 'Why does this support the claim? *'}
-                        </label>
-                        <textarea
-                          rows={2}
-                          value={supportReasonText}
-                          onChange={(e) => setSupportReasonText(e.target.value)}
-                          placeholder={
-                            popoverClaimId === 'open_problems_survey'
-                              ? 'e.g. Memory bandwidth limits in multi-layer training...'
-                              : 'e.g. Demonstrates that sparse activations prevent cross-talk...'
-                          }
-                          className="w-full bg-stone-50 dark:bg-[#252525] border border-stone-200 dark:border-stone-700 rounded-lg p-2 text-xs text-stone-900 dark:text-stone-100 placeholder-stone-400 focus:outline-hidden resize-none"
-                        />
-                      </div>
-
-                      {/* Create Button: disabled until field has text */}
-                      <div className="pt-1 flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => setIsEvidencePopoverOpen(false)}
-                          className="px-2.5 py-1.5 text-xs text-stone-500 hover:text-stone-900 dark:hover:text-white cursor-pointer"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          onClick={handleCreateEvidence}
-                          disabled={!supportReasonText.trim()}
-                          className="px-3.5 py-1.5 bg-stone-900 dark:bg-white text-white dark:text-stone-900 rounded-lg text-xs font-medium disabled:opacity-40 disabled:pointer-events-none hover:bg-stone-800 dark:hover:bg-stone-100 transition-colors cursor-pointer"
-                        >
-                          Create Evidence
-                        </button>
-                      </div>
                     </div>
                   )}
                 </div>
@@ -853,40 +907,38 @@ export function PapersPane({
                   <div
                     id="document-rendered-page"
                     style={{ fontSize: `${(currentZoomLevel / 100) * 15}px` }}
-                    className="max-w-[720px] mx-auto bg-white dark:bg-[#1a1a1a] border border-stone-200 dark:border-stone-800 rounded-xl p-8 sm:p-12 shadow-[0_1px_3px_rgba(0,0,0,0.02)] space-y-6 text-stone-800 dark:text-stone-200 select-text"
+                    className="max-w-[720px] mx-auto bg-paper border border-rule rounded-[2px] p-8 sm:p-12 shadow-[0_1px_3px_rgba(0,0,0,0.02)] space-y-6 text-ink select-text"
                   >
-                    {/* Paper Header */}
-                    <div className="border-b border-stone-200 dark:border-stone-800 pb-6 space-y-2">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400 dark:text-stone-500">
-                        PRIMARY PAPER • {activePaper.citation}
-                      </span>
-                      <h1 className="text-[22px] font-semibold text-stone-900 dark:text-stone-100 leading-tight">
+                    {/* Paper Title Header */}
+                    <div className="border-b border-rule pb-6 space-y-2">
+                      <SectionLabel className="text-[10px] text-ink-muted">
+                        PRIMARY SOURCE · {activePaper.citation}
+                      </SectionLabel>
+                      <h1 className="font-serif text-[22px] text-ink leading-tight">
                         {activePaper.title}
                       </h1>
-                      <div className="text-[13px] text-stone-500 dark:text-stone-400">
-                        <span>{activePaper.authors}</span> • <span>{activePaper.year}</span>
+                      <div className="text-[13px] text-ink-muted font-sans">
+                        <span>{activePaper.authors}</span> · <span>{activePaper.year}</span>
                       </div>
                     </div>
 
                     {/* Abstract Section */}
                     <div
                       id="paper-abstract-block"
-                      className="bg-stone-50 dark:bg-[#202020] border border-stone-200 dark:border-stone-700 rounded-xl p-4 space-y-2"
+                      className="bg-surface border border-rule rounded-[2px] p-4 space-y-2"
                     >
-                      <div className="text-[11px] font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">
-                        Abstract
-                      </div>
-                      <p className="text-sm leading-relaxed text-stone-700 dark:text-stone-300 italic">
+                      <SectionLabel className="text-[10px] text-ink-muted">Abstract</SectionLabel>
+                      <p className="font-serif italic text-sm leading-relaxed text-ink">
                         {activePaper.abstract}
                       </p>
                     </div>
 
-                    {/* Full Body Sections if Full Paper mode */}
+                    {/* Full Body Sections */}
                     {viewMode === 'text' && (
                       <div className="space-y-8 pt-4">
                         {activePaper.sections.map((sec) => (
                           <div key={sec.id} className="space-y-4">
-                            <h2 className="text-base font-semibold text-stone-900 dark:text-stone-100 border-b border-stone-100 dark:border-stone-800 pb-1.5">
+                            <h2 className="font-sans text-sm font-semibold text-ink border-b border-rule pb-1.5 uppercase tracking-wide">
                               {sec.heading}
                             </h2>
                             <div className="space-y-3.5">
@@ -897,10 +949,10 @@ export function PapersPane({
                                     key={par.id}
                                     id={par.id}
                                     data-paragraph-id={par.id}
-                                    className={`text-sm leading-relaxed transition-colors rounded px-1 -mx-1 ${
+                                    className={`font-serif text-sm leading-relaxed transition-colors rounded-[2px] px-1 -mx-1 ${
                                       isLinked
-                                        ? 'border-l-2 border-emerald-500 pl-3 bg-emerald-50/20 dark:bg-emerald-950/20 text-stone-900 dark:text-stone-100'
-                                        : 'text-stone-700 dark:text-stone-300'
+                                        ? 'border-l-2 border-ink pl-3 bg-surface text-ink'
+                                        : 'text-ink'
                                     }`}
                                   >
                                     {par.text}
@@ -913,11 +965,78 @@ export function PapersPane({
                       </div>
                     )}
                   </div>
+
+                  {/* Passage Selection Floating Toolbar over Text */}
+                  {selectionRange && !isFindingSlipOpen && (
+                    <div
+                      id="selection-toolbar-text"
+                      style={{
+                        top: `${selectionRange.top}px`,
+                        left: `${selectionRange.left}px`,
+                      }}
+                      className="absolute -translate-x-1/2 -translate-y-full mb-2 z-40 flex items-center bg-ink text-paper rounded-[2px] p-1 shadow-xl border border-ink/80 animate-in fade-in zoom-in-95 duration-100 select-none gap-0.5"
+                    >
+                      <button
+                        onClick={handleActionAsk}
+                        className="px-2.5 py-1 text-xs font-sans hover:bg-paper/20 rounded-[2px] transition-colors cursor-pointer"
+                      >
+                        Ask
+                      </button>
+                      <div className="w-[1px] h-3 bg-paper/30 mx-0.5" />
+                      <button
+                        onClick={handleActionMakeFinding}
+                        className="px-2.5 py-1 text-xs font-medium font-sans hover:bg-paper/20 rounded-[2px] text-paper transition-colors cursor-pointer flex items-center gap-1"
+                      >
+                        <Quote className="w-3 h-3" />
+                        <span>Make finding</span>
+                      </button>
+                      <div className="w-[1px] h-3 bg-paper/30 mx-0.5" />
+                      <button
+                        onClick={handleActionHighlight}
+                        className="px-2.5 py-1 text-xs font-sans hover:bg-paper/20 text-paper/80 hover:text-paper rounded-[2px] transition-colors cursor-pointer"
+                      >
+                        Highlight
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           </section>
+
+          {/* Finding-Capture Slip Side Panel */}
+          {selectionRange && isFindingSlipOpen && (
+            <FindingCaptureSlip
+              isOpen={isFindingSlipOpen}
+              onClose={() => setIsFindingSlipOpen(false)}
+              passageText={selectionRange.text}
+              pageNumber={selectionRange.pageNumber || currentPage}
+              paragraphId={selectionRange.paragraphId}
+              paper={activePaper}
+              questions={questions}
+              initialClaimId={selectedClaimId}
+              onSubmitFinding={handleSubmitFinding}
+              onViewInContext={() => {
+                // Keep passage in view
+              }}
+            />
+          )}
         </div>
+      )}
+
+      {/* Paper Info / Metadata Modal */}
+      {activePaper && (
+        <PaperInfoModal
+          isOpen={isInfoModalOpen}
+          onClose={() => setIsInfoModalOpen(false)}
+          paper={activePaper}
+          questions={questions}
+          onNavigateToClaim={onNavigateToClaim}
+          onJumpToPage={(pNum) => {
+            setCurrentPage(pNum);
+            setIsInfoModalOpen(false);
+          }}
+        />
       )}
 
       {/* Upload PDF Modal */}
@@ -931,7 +1050,10 @@ export function PapersPane({
           if (newPaper.pdfData) {
             setPdfBuffers((prev) => ({
               ...prev,
-              [newPaper.id]: newPaper.pdfData instanceof Uint8Array ? newPaper.pdfData : new Uint8Array(newPaper.pdfData!),
+              [newPaper.id]:
+                newPaper.pdfData instanceof Uint8Array
+                  ? newPaper.pdfData
+                  : new Uint8Array(newPaper.pdfData!),
             }));
           }
         }}
@@ -948,7 +1070,10 @@ export function PapersPane({
           if (newPaper.pdfData) {
             setPdfBuffers((prev) => ({
               ...prev,
-              [newPaper.id]: newPaper.pdfData instanceof Uint8Array ? newPaper.pdfData : new Uint8Array(newPaper.pdfData!),
+              [newPaper.id]:
+                newPaper.pdfData instanceof Uint8Array
+                  ? newPaper.pdfData
+                  : new Uint8Array(newPaper.pdfData!),
             }));
           }
         }}

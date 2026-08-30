@@ -2,17 +2,92 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+:root {
+  --color-paper: #E8EAE6;
+  --color-surface: #F3F4F1;
+  --color-ink: #14181C;
+  --color-ink-muted: #5C6570;
+  --color-rule: #C9CCC5;
+  --color-holds: #3F7D58;
+  --color-weak: #B8862F;
+  --color-missing: #B4442E;
+}
+
+html.dark, .dark {
+  --color-paper: #101315;
+  --color-surface: #171B1E;
+  --color-ink: #E6E9E4;
+  --color-ink-muted: #949CA3;
+  --color-rule: #2C3235;
+  --color-holds: #5E9E76;
+  --color-weak: #D2A44E;
+  --color-missing: #D2664C;
+}
+
 @theme {
-  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-serif: 'Newsreader', Georgia, serif;
+  --font-display: 'Newsreader', Georgia, serif;
+  --font-sans: 'Public Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
+
+  --color-paper: var(--color-paper);
+  --color-surface: var(--color-surface);
+  --color-ink: var(--color-ink);
+  --color-ink-muted: var(--color-ink-muted);
+  --color-rule: var(--color-rule);
+  --color-holds: var(--color-holds);
+  --color-weak: var(--color-weak);
+  --color-missing: var(--color-missing);
 }
 
 html, body, #root {
   height: 100%;
   margin: 0;
   padding: 0;
+  background-color: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
 }
 
 html.dark {
   color-scheme: dark;
+}
+
+/* Hatch pattern for Model-Produced blocks */
+.hatched-left-border {
+  position: relative;
+}
+.hatched-left-border::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 4px;
+  background-image: repeating-linear-gradient(
+    -45deg,
+    var(--color-rule),
+    var(--color-rule) 2px,
+    transparent 2px,
+    transparent 5px
+  );
+}
+
+/* Explicit focus rings on all interactive elements */
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+  outline: 1px solid var(--color-ink);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

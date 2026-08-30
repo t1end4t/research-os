@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   QuestionNode,
+  ClaimNode,
   ChatMessage,
   AppTab,
   FilterStatus,
@@ -12,14 +13,26 @@ import {
   ClusteringProposal,
   EvidenceKind,
   PaperDoc,
+  DraftManuscript,
 } from './types';
+import { ClaimWorkbench } from './components/workbench/ClaimWorkbench';
 import { GraphPane } from './components/GraphPane';
 import { CheckPane } from './components/CheckPane';
 import { GraphCanvas } from './components/GraphCanvas';
 import { PapersPane } from './components/PapersPane';
 import { ExperimentsPane } from './components/ExperimentsPane';
 import { SurveyPane } from './components/SurveyPane';
-import { AssistantDock } from './components/AssistantDock';
+import { DraftPane } from './components/draft/DraftPane';
+import { INITIAL_DRAFT_MANUSCRIPT } from './data/draftData';
+import { INITIAL_EXPERIMENTS_DATA } from './data/experimentsData';
+import { TopBar } from './components/shell/TopBar';
+import {
+  StandingBar,
+  StandingCounts,
+  StandingSegment,
+} from './components/shell/StandingBar';
+import { LeftRail } from './components/shell/LeftRail';
+import { ExaminerDockPlaceholder } from './components/shell/ExaminerDockPlaceholder';
 import {
   createClaim,
   createEvidence,
@@ -28,13 +41,7 @@ import {
 import type { AssistantErrorResponse, AssistantResponse } from './assistantApi';
 import type { DraggableResearchItem } from './researchItemDrag';
 import type { WorkspaceErrorResponse, WorkspaceResponse } from './workspaceApi';
-import {
-  PanelRightClose,
-  PanelRightOpen,
-  PanelRight,
-  Sun,
-  Moon,
-} from 'lucide-react';
+
 
 export default function App() {
   // App-level Navigation & Selection State
@@ -45,6 +52,27 @@ export default function App() {
   const [filter, setFilter] = useState<FilterStatus>('all');
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
   const [editingEvidenceKind, setEditingEvidenceKind] = useState<EvidenceKind | undefined>();
+
+  // Standing Bar & Model filter state
+  const [standingFilter, setStandingFilter] = useState<StandingSegment>('all');
+  const [onlyMine, setOnlyMine] = useState<boolean>(false);
+  const [isWorkbenchOpen, setIsWorkbenchOpen] = useState<boolean>(false);
+
+  // Synchronized Filter Change
+  const handleFilterChange = (newFilter: FilterStatus) => {
+    setFilter(newFilter);
+    if (newFilter === 'all') setStandingFilter('all');
+    else if (newFilter === 'weak') setStandingFilter('weak');
+    else if (newFilter === 'missing') setStandingFilter('unsupported');
+  };
+
+  const handleStandingFilterChange = (segment: StandingSegment) => {
+    setStandingFilter(segment);
+    if (segment === 'all') setFilter('all');
+    else if (segment === 'weak') setFilter('weak');
+    else if (segment === 'unsupported') setFilter('missing');
+  };
+
 
   // Project Tag Filter State (persistent across tab switches and reloads)
   const [selectedTag, setSelectedTag] = useState<string>(() => {
@@ -60,6 +88,27 @@ export default function App() {
       localStorage.setItem('epistemic_selected_tag', selectedTag);
     }
   }, [selectedTag]);
+
+  // Draft manuscript state (session-local persistence)
+  const [manuscript, setManuscript] = useState<DraftManuscript>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('epistemic_draft_manuscript');
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch {
+          // fallback
+        }
+      }
+    }
+    return INITIAL_DRAFT_MANUSCRIPT;
+  });
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('epistemic_draft_manuscript', JSON.stringify(manuscript));
+    }
+  }, [manuscript]);
 
   // Survey discovery state
   const [openProblems, setOpenProblems] = useState<OpenProblemNote[]>([]);
@@ -256,6 +305,55 @@ export default function App() {
     return questionsData.filter((q) => q.tags && q.tags.includes(selectedTag));
   }, [questionsData, selectedTag]);
 
+  // Compute Standing Bar counts dynamically
+  const standingCounts: StandingCounts = useMemo(() => {
+    let holds = 0;
+    let weak = 0;
+    let unsupported = 0;
+    let unwrittenReasons = 0;
+
+    tagFilteredQuestions.forEach((q) => {
+      q.claims.forEach((c) => {
+        if (c.linkStatus === 'holds') holds++;
+        else if (c.linkStatus === 'weak') weak++;
+        else if (c.linkStatus === 'missing') unsupported++;
+
+        // Check if claim reason is unwritten
+        if (!c.check?.reasonText || c.check.reasonText.trim() === '') {
+          unwrittenReasons++;
+        }
+
+        // Check evidence
+        if (!c.evidence || c.evidence.length === 0) {
+          // If not already counted as missing
+          if (c.linkStatus !== 'missing') {
+            unsupported++;
+          }
+        } else {
+          c.evidence.forEach((e) => {
+            if (!e.userReason || e.userReason.trim() === '') {
+              unwrittenReasons++;
+            }
+          });
+        }
+      });
+    });
+
+    const openQuestions =
+      tagFilteredQuestions.length +
+      candidateQuestions.length +
+      openProblems.length;
+
+    return {
+      holds,
+      weak,
+      unsupported,
+      unwrittenReasons,
+      openQuestions,
+    };
+  }, [tagFilteredQuestions, candidateQuestions, openProblems]);
+
+
   // Assistant Threads dictionary & active thread ID
   const [threads, setThreads] = useState<Record<string, AssistantThread>>({
     'thread-whole_graph-whole_graph': {
@@ -398,6 +496,14 @@ export default function App() {
       };
     }
 
+    if (activeTab === 'draft') {
+      return {
+        kind: 'draft',
+        id: 'draft',
+        label: `draft: ${manuscript.title}`,
+      };
+    }
+
     if (selectedNodeId) {
       const claim = tagFilteredQuestions.flatMap((q) => q.claims).find((c) => c.id === selectedNodeId);
       if (claim) {
@@ -479,6 +585,7 @@ export default function App() {
   const handleSelectClaim = (claimId: string) => {
     setSelectedNodeId(claimId);
     setSelectedClaimId(claimId);
+    setIsWorkbenchOpen(true);
     setEditingNodeId(null);
     setEditingEvidenceKind(undefined);
     triggerHighlight(claimId);
@@ -489,9 +596,26 @@ export default function App() {
     setSelectedNodeId(questionId);
     const question = questionsData.find((item) => item.id === questionId);
     setSelectedClaimId(question?.claims[0]?.id || null);
+    setIsWorkbenchOpen(false);
     setEditingNodeId(null);
     setEditingEvidenceKind(undefined);
     triggerHighlight(questionId);
+  };
+
+  const handleUpdateClaimNode = (updatedClaim: ClaimNode) => {
+    setQuestionsData((prev) =>
+      prev.map((question) => {
+        const hasClaim = question.claims.some((c) => c.id === updatedClaim.id);
+        if (!hasClaim) return question;
+        return {
+          ...question,
+          claims: question.claims.map((c) =>
+            c.id === updatedClaim.id ? updatedClaim : c
+          ),
+        };
+      })
+    );
+    triggerHighlight(updatedClaim.id);
   };
 
   const handleToggleEditNode = (nodeId: string) => {
@@ -568,18 +692,20 @@ export default function App() {
         (item) => item.id === node.id || item.id === node.questionId
       );
       setSelectedClaimId(question?.claims[0]?.id || null);
+      setIsWorkbenchOpen(false);
       setEditingNodeId(null);
       setEditingEvidenceKind(undefined);
       triggerHighlight(node.id);
-      setActiveTab('detail');
+      setActiveTab('graph');
       return;
     }
 
     if (node.type === 'CLAIM') {
       const claimId = node.claimId || node.id;
       setSelectedClaimId(claimId);
+      setIsWorkbenchOpen(true);
       triggerHighlight(claimId);
-      setActiveTab('detail');
+      setActiveTab('graph');
       return;
     }
 
@@ -623,8 +749,9 @@ export default function App() {
     if (node.type === 'GHOST') {
       const parentClaimId = node.claimId || 'c1';
       setSelectedClaimId(parentClaimId);
+      setIsWorkbenchOpen(true);
       triggerHighlight(parentClaimId);
-      setActiveTab('detail');
+      setActiveTab('graph');
       return;
     }
   };
@@ -813,6 +940,27 @@ export default function App() {
     triggerHighlight(newEvId);
   };
 
+  // Remove evidence from claim (e.g. for Undo finding)
+  const handleRemoveEvidenceFromClaim = (
+    claimId: string,
+    evidenceId: string
+  ) => {
+    setQuestionsData((prev) =>
+      prev.map((q) => ({
+        ...q,
+        claims: q.claims.map((claim) => {
+          if (claim.id === claimId) {
+            return {
+              ...claim,
+              evidence: claim.evidence.filter((e) => e.id !== evidenceId),
+            };
+          }
+          return claim;
+        }),
+      }))
+    );
+  };
+
   // Open Problem Management Handlers
   const handleAddOpenProblem = (text: string, citation?: string) => {
     const newProblem: OpenProblemNote = {
@@ -883,59 +1031,58 @@ export default function App() {
   };
 
   // PROMOTE CANDIDATE TEST HANDLER
-  const handlePromoteCandidate = (candidate: CandidateQuestion, claimText: string) => {
+  const handlePromoteCandidate = (
+    candidate: CandidateQuestion,
+    claimText: string,
+    tags?: string[],
+    falsificationCondition?: string
+  ): string => {
     const newQuestionId = `q-${Date.now()}`;
     const newClaimId = `c-${Date.now()}`;
 
-    // Inherit active project tag (or default to tinyml if 'all')
-    const inheritedTags = selectedTag !== 'all' ? [selectedTag] : ['tinyml'];
-
-    // Collect linked open problems as preliminary weak evidence
-    const linkedProblems = candidate.openProblemIds
-      .map((pid) => openProblems.find((p) => p.id === pid))
-      .filter((p): p is OpenProblemNote => !!p);
-
-    const newEvidenceItems = linkedProblems.map((prob, idx) => ({
-      id: `ev-promoted-${Date.now()}-${idx}`,
-      kind: 'paper' as const,
-      typeLabel: 'PAPER',
-      title: prob.text,
-      citation: prob.citation || 'Survey open problem',
-    }));
+    // Inherit tags or active project tag
+    const finalTags =
+      tags && tags.length > 0
+        ? tags
+        : selectedTag !== 'all'
+        ? [selectedTag]
+        : ['tinyml'];
 
     const newQuestion: QuestionNode = {
       id: newQuestionId,
       type: 'QUESTION',
       text: candidate.text,
-      tags: inheritedTags,
+      tags: finalTags,
       claims: [
         {
           id: newClaimId,
           type: 'CLAIM',
           text: claimText,
-          linkStatus: 'weak',
-          evidence: newEvidenceItems,
+          linkStatus: 'missing',
+          questionReason: '',
+          evidence: [],
           check: {
-            tag: 'TYPE MISMATCH',
-            tagColor: 'amber',
-            reasonText: 'Promoted candidate hypothesis from discovery survey.',
-            explanation:
-              'Claim formulated from open problem survey. Evidence items attached as initial weak observational references.',
+            tag: 'UNWRITTEN REASON',
+            tagColor: 'red',
+            reasonText: '',
+            explanation: falsificationCondition
+              ? `Promoted from survey. Falsification test noted: "${falsificationCondition}". User reason required to evaluate link.`
+              : 'Promoted from survey. User reason required to evaluate link.',
             checks: [
               {
                 label: 'Type',
-                status: 'mismatch',
-                detail: 'Observational open problem references',
+                status: 'unverified',
+                detail: 'Pending user reason to verify causal/correlational alignment',
               },
               {
                 label: 'Scope',
-                status: 'partial',
-                detail: 'Survey open problems scope',
+                status: 'unverified',
+                detail: 'Pending user reason to verify scope boundary',
               },
               {
                 label: 'Target',
-                status: 'aligned',
-                detail: 'Direct target from candidate question',
+                status: 'unverified',
+                detail: 'Pending user reason to verify target metrics',
               },
             ],
           },
@@ -953,11 +1100,12 @@ export default function App() {
     // 3. Remove the promoted candidate
     setCandidateQuestions((prev) => prev.filter((c) => c.id !== candidate.id));
 
-    // 4. Switch to Detail Tab with new Claim selected
-    setSelectedNodeId(newClaimId);
+    // 4. Select newly created question/claim
+    setSelectedNodeId(newQuestionId);
     setSelectedClaimId(newClaimId);
-    setActiveTab('detail');
     triggerHighlight(newClaimId);
+
+    return newQuestionId;
   };
 
   // CLUSTERING HANDLER (Sends notes to assistant)
@@ -1336,226 +1484,76 @@ export default function App() {
   }
 
   return (
-    <div className="relative flex flex-col h-screen w-screen overflow-hidden bg-[#fcfcfc] dark:bg-[#121212] text-[#1a1a1a] dark:text-[#ededed] font-sans transition-colors duration-150">
-      {/* Top Header Bar: Minimal Text Tabs on Top-Left + Tag Filter + Action Controls on Right */}
-      <header
-        id="app-top-header"
-        className="h-11 px-6 border-b border-[#ececec] dark:border-[#262626] bg-white dark:bg-[#181818] flex items-center justify-between shrink-0 z-30 transition-colors"
-      >
-        {/* Minimal text tabs (top-left: Graph | Survey | Detail | Papers | Experiments) */}
-        <nav aria-label="Main Views" className="flex items-center gap-5 sm:gap-6">
-          <button
-            id="tab-graph-btn"
-            onClick={() => setActiveTab('graph')}
-            className={`text-[13px] font-medium transition-colors cursor-pointer py-2.5 ${
-              activeTab === 'graph'
-                ? 'text-[#1a1a1a] dark:text-white font-semibold border-b-2 border-[#1a1a1a] dark:border-white'
-                : 'text-[#888] dark:text-[#777] hover:text-[#1a1a1a] dark:hover:text-[#eee] border-b-2 border-transparent'
-            }`}
-          >
-            Graph
-          </button>
-          <button
-            id="tab-survey-btn"
-            onClick={() => setActiveTab('survey')}
-            className={`text-[13px] font-medium transition-colors cursor-pointer py-2.5 ${
-              activeTab === 'survey'
-                ? 'text-[#1a1a1a] dark:text-white font-semibold border-b-2 border-[#1a1a1a] dark:border-white'
-                : 'text-[#888] dark:text-[#777] hover:text-[#1a1a1a] dark:hover:text-[#eee] border-b-2 border-transparent'
-            }`}
-          >
-            Survey
-          </button>
-          <button
-            id="tab-detail-btn"
-            onClick={() => setActiveTab('detail')}
-            className={`text-[13px] font-medium transition-colors cursor-pointer py-2.5 ${
-              activeTab === 'detail'
-                ? 'text-[#1a1a1a] dark:text-white font-semibold border-b-2 border-[#1a1a1a] dark:border-white'
-                : 'text-[#888] dark:text-[#777] hover:text-[#1a1a1a] dark:hover:text-[#eee] border-b-2 border-transparent'
-            }`}
-          >
-            Detail
-          </button>
-          <button
-            id="tab-papers-btn"
-            onClick={() => setActiveTab('papers')}
-            className={`text-[13px] font-medium transition-colors cursor-pointer py-2.5 ${
-              activeTab === 'papers'
-                ? 'text-[#1a1a1a] dark:text-white font-semibold border-b-2 border-[#1a1a1a] dark:border-white'
-                : 'text-[#888] dark:text-[#777] hover:text-[#1a1a1a] dark:hover:text-[#eee] border-b-2 border-transparent'
-            }`}
-          >
-            Papers
-          </button>
-          <button
-            id="tab-experiments-btn"
-            onClick={() => setActiveTab('experiments')}
-            className={`text-[13px] font-medium transition-colors cursor-pointer py-2.5 ${
-              activeTab === 'experiments'
-                ? 'text-[#1a1a1a] dark:text-white font-semibold border-b-2 border-[#1a1a1a] dark:border-white'
-                : 'text-[#888] dark:text-[#777] hover:text-[#1a1a1a] dark:hover:text-[#eee] border-b-2 border-transparent'
-            }`}
-          >
-            Experiments
-          </button>
-        </nav>
+    <div className="relative flex flex-col h-screen w-screen overflow-hidden bg-paper text-ink font-sans">
+      {/* Top Bar: Wordmark, workspace, tag filter, only mine toggle, theme toggle, ⌘J hint */}
+      <TopBar
+        workspacePath={workspacePath}
+        selectedTag={selectedTag}
+        allTags={allTagsInUse}
+        onSelectTag={setSelectedTag}
+        onlyMine={onlyMine}
+        onToggleOnlyMine={() => setOnlyMine(!onlyMine)}
+        darkMode={darkMode}
+        onToggleDarkMode={() => setDarkMode(!darkMode)}
+        isAssistantOpen={isAssistantOpen}
+        onToggleAssistant={() => {
+          if (!isTooNarrowForAssistant) {
+            setIsAssistantOpen(!isAssistantOpen);
+          }
+        }}
+      />
 
-        {/* Right-aligned context & panel controls */}
-        <div className="flex items-center gap-2.5">
-          <span
-            className="max-w-48 truncate font-mono text-[10px] text-[#999] dark:text-[#777]"
-            title={workspacePath}
-          >
-            {workspacePath}
-          </span>
+      {/* Standing Bar: Signature element with holds/weak/unsupported/unwritten/open counts */}
+      <StandingBar
+        counts={standingCounts}
+        activeSegment={standingFilter}
+        onSelectSegment={handleStandingFilterChange}
+      />
 
-          {/* Note when window is too narrow for assistant */}
-          {isTooNarrowForAssistant && (
-            <span
-              id="assistant-narrow-warning-label"
-              className="text-[11px] text-[#888] dark:text-[#777] italic"
-            >
-              Assistant hidden - window too narrow
-            </span>
-          )}
-
-          {/* PROJECT TAG FILTER: Left of Dark Toggle */}
-          <div className="flex items-center gap-1.5">
-            <select
-              id="tag-filter-select"
-              value={selectedTag}
-              onChange={(e) => setSelectedTag(e.target.value)}
-              aria-label="Filter by project tag"
-              className="bg-white dark:bg-[#222222] border border-[#ececec] dark:border-[#2e2e2e] text-[#1a1a1a] dark:text-[#dedede] text-[12px] font-medium rounded px-2.5 py-1 focus:outline-hidden cursor-pointer shadow-[0_1px_2px_rgba(0,0,0,0.02)]"
-            >
-              <option value="all">All projects</option>
-              {allTagsInUse.map((tag) => (
-                <option key={tag} value={tag}>
-                  {tag}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Detail Tab Check panel collapse control */}
-          {activeTab === 'detail' && (
-            <button
-              id="toggle-check-pane-btn"
-              onClick={() => setIsCheckCollapsed(!isCheckCollapsed)}
-              title={
-                isCheckCollapsed
-                  ? 'Show check inspector'
-                  : 'Collapse check inspector'
-              }
-              aria-label={
-                isCheckCollapsed
-                  ? 'Show check inspector'
-                  : 'Collapse check inspector'
-              }
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-[#ececec] dark:border-[#2e2e2e] bg-white dark:bg-[#222222] text-[#6b6b6b] dark:text-[#a0a0a0] text-[12px] font-medium shadow-[0_1px_2px_rgba(0,0,0,0.02)] hover:bg-[#f0f0f0] dark:hover:bg-[#2c2c2c] hover:text-[#1a1a1a] dark:hover:text-white transition-all cursor-pointer"
-            >
-              {isCheckCollapsed ? (
-                <>
-                  <PanelRightOpen className="w-3.5 h-3.5" />
-                  <span>Show check</span>
-                </>
-              ) : (
-                <>
-                  <PanelRightClose className="w-3.5 h-3.5" />
-                  <span>Collapse</span>
-                </>
-              )}
-            </button>
-          )}
-
-          {/* Dark mode toggle */}
-          <button
-            id="theme-toggle-btn"
-            onClick={() => setDarkMode(!darkMode)}
-            title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
-            aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-[#ececec] dark:border-[#2e2e2e] bg-white dark:bg-[#222222] text-[#6b6b6b] dark:text-[#a0a0a0] text-[12px] font-medium shadow-[0_1px_2px_rgba(0,0,0,0.02)] hover:bg-[#f0f0f0] dark:hover:bg-[#2c2c2c] hover:text-[#1a1a1a] dark:hover:text-white transition-all cursor-pointer"
-          >
-            {darkMode ? (
-              <>
-                <Sun className="w-3.5 h-3.5 text-amber-400" />
-                <span className="hidden sm:inline">Light</span>
-              </>
-            ) : (
-              <>
-                <Moon className="w-3.5 h-3.5 text-stone-600" />
-                <span className="hidden sm:inline">Dark</span>
-              </>
-            )}
-          </button>
-
-          {/* Assistant Dock Toggle: right-aligned, next to Dark toggle */}
-          <button
-            id="toggle-assistant-dock-btn"
-            onClick={() => {
-              if (isTooNarrowForAssistant) return;
-              setIsAssistantOpen(!isAssistantOpen);
-            }}
-            disabled={isTooNarrowForAssistant}
-            title={
-              isTooNarrowForAssistant
-                ? 'Window too narrow for assistant'
-                : `Toggle Assistant Dock (${typeof navigator !== 'undefined' && navigator.platform?.includes('Mac') ? '⌘J' : 'Ctrl+J'})`
-            }
-            aria-label="Toggle Assistant Dock"
-            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded border transition-all cursor-pointer text-[12px] font-medium shadow-[0_1px_2px_rgba(0,0,0,0.02)] ${
-              isTooNarrowForAssistant
-                ? 'opacity-40 cursor-not-allowed bg-[#f5f5f5] dark:bg-[#222222] text-[#888] dark:text-[#666] border-[#ececec] dark:border-[#2e2e2e]'
-                : isAssistantOpen
-                ? 'bg-stone-900 dark:bg-white text-white dark:text-stone-900 border-stone-900 dark:border-white'
-                : 'bg-white dark:bg-[#222222] text-[#6b6b6b] dark:text-[#a0a0a0] border-[#ececec] dark:border-[#2e2e2e] hover:bg-[#f0f0f0] dark:hover:bg-[#2c2c2c] hover:text-[#1a1a1a] dark:hover:text-white'
-            }`}
-          >
-            <PanelRight className="w-3.5 h-3.5" />
-            <span>Assistant</span>
-          </button>
-        </div>
-      </header>
-
-      {/* Thin Bar under top bar when tag filter is active */}
-      {selectedTag !== 'all' && (
-        <div
-          id="active-tag-banner"
-          className="h-7 px-6 bg-[#f7f7f7] dark:bg-[#181818] border-b border-[#ececec] dark:border-[#262626] flex items-center justify-between text-[12px] text-[#666] dark:text-[#aaa] shrink-0"
-        >
-          <div>
-            Showing: <span className="font-semibold text-[#1a1a1a] dark:text-white">{selectedTag}</span> —{' '}
-            {tagFilteredQuestions.length}{' '}
-            {tagFilteredQuestions.length === 1 ? 'question' : 'questions'}.
-          </div>
-          <button
-            onClick={() => setSelectedTag('all')}
-            className="font-medium text-[#1a1a1a] dark:text-white underline hover:no-underline cursor-pointer ml-3"
-          >
-            [Show all]
-          </button>
-        </div>
-      )}
-
-      {/* Main View Area: Tab Content Resizes beside Dock (No Overlay) */}
+      {/* Main Container: Left Rail + Active Screen + Examiner Dock */}
       <div
-        className={`flex-1 flex w-full ${
-          selectedTag !== 'all' ? 'h-[calc(100vh-4.5rem)]' : 'h-[calc(100vh-2.75rem)]'
-        } overflow-hidden bg-[#fcfcfc] dark:bg-[#121212] ${
+        className={`flex-1 flex w-full overflow-hidden bg-paper ${
           isDraggingDock ? 'select-none' : ''
         }`}
       >
-        {/* Tab Content Container */}
-        <main className="flex-1 h-full overflow-hidden min-w-0">
+        {/* Left Rail: Pipeline navigation (Survey -> Map -> Read -> Bench -> Draft) */}
+        <LeftRail activeTab={activeTab} onSelectTab={setActiveTab} />
+
+        {/* Main Screen Content */}
+        <main className="flex-1 h-full overflow-hidden min-w-0 bg-paper">
           {activeTab === 'graph' && (
-            <GraphCanvas
-              questions={tagFilteredQuestions}
-              selectedNodeId={selectedNodeId}
-              onSelectNode={handleSelectNodeFromGraph}
-              filter={filter}
-              onFilterChange={setFilter}
-            />
+            isWorkbenchOpen && selectedClaim ? (
+              <div className="h-full w-full overflow-y-auto bg-paper">
+                <ClaimWorkbench
+                  claim={selectedClaim}
+                  question={selectedQuestion || null}
+                  onlyMine={onlyMine}
+                  onBackToMap={() => setIsWorkbenchOpen(false)}
+                  onSelectQuestion={(qId) => {
+                    setSelectedNodeId(qId);
+                    setIsWorkbenchOpen(false);
+                  }}
+                  onNavigateToTab={(tab, contextId) => {
+                    if (contextId) setSelectedNodeId(contextId);
+                    setIsWorkbenchOpen(false);
+                    setActiveTab(tab);
+                  }}
+                  onUpdateClaim={handleUpdateClaimNode}
+                />
+              </div>
+            ) : (
+              <GraphCanvas
+                questions={tagFilteredQuestions}
+                selectedNodeId={selectedNodeId}
+                onSelectNode={handleSelectNodeFromGraph}
+                filter={filter}
+                standingFilter={standingFilter}
+                onFilterChange={handleFilterChange}
+                onStandingFilterChange={handleStandingFilterChange}
+                onNavigateToSurvey={() => setActiveTab('survey')}
+                isLoading={isWorkspaceLoading}
+              />
+            )
           )}
 
           {activeTab === 'survey' && (
@@ -1572,51 +1570,46 @@ export default function App() {
               onUnlinkProblemFromCandidate={handleUnlinkProblemFromCandidate}
               onPromoteCandidate={handlePromoteCandidate}
               onClusterNotes={handleClusterNotes}
+              onlyMine={onlyMine}
+              activeProjectTag={selectedTag}
+              onNavigateToMap={(questionId) => {
+                if (questionId) {
+                  setSelectedNodeId(questionId);
+                  const q = questionsData.find((item) => item.id === questionId);
+                  if (q?.claims[0]) {
+                    setSelectedClaimId(q.claims[0].id);
+                    setIsWorkbenchOpen(true);
+                  } else {
+                    setIsWorkbenchOpen(false);
+                  }
+                }
+                setActiveTab('graph');
+              }}
             />
           )}
 
-          {activeTab === 'detail' && (
-            <div className="flex h-full w-full">
-              {/* Column 1: Left Pane — Graph Tree */}
-              <section
-                aria-label="Epistemic Graph"
-                className={`h-full transition-[width] duration-200 ease-in-out border-r border-[#ececec] dark:border-[#262626] bg-white dark:bg-[#141414] overflow-hidden ${
-                  isCheckCollapsed ? 'w-full' : 'w-1/2'
-                }`}
-              >
-                <GraphPane
-                  questions={tagFilteredQuestions}
-                  selectedNodeId={selectedNodeId}
-                  selectedClaimId={selectedClaimId}
-                  selectedQuestionId={selectedQuestion?.id}
-                  editingNodeId={editingNodeId}
-                  editingEvidenceKind={editingEvidenceKind}
-                  onSelectClaim={handleSelectClaim}
-                  onSelectQuestion={handleSelectQuestion}
-                  onToggleEdit={handleToggleEditNode}
-                  onUpdateQuestion={handleUpdateQuestion}
-                  onAddClaim={handleAddClaimToQuestion}
-                  onUpdateClaim={handleUpdateClaim}
-                  onAddEvidence={handleAddEvidence}
-                  highlightedNodeId={highlightedNodeId}
-                />
-              </section>
-
-              {/* Column 2: Middle Pane — Check Panel */}
-              {!isCheckCollapsed && (
-                <section
-                  aria-label="Claim Evidence Check Panel"
-                  className="h-full w-1/2 transition-[width] duration-200 ease-in-out bg-[#f9f9f9] dark:bg-[#181818] overflow-hidden"
-                >
-                  <CheckPane
-                    claim={selectedClaim}
-                    selectedQuestion={selectedQuestion}
-                    onRejectClaim={handleRejectClaim}
-                    onEditClaim={handleEditClaim}
-                    onReset={handleReset}
-                  />
-                </section>
-              )}
+          {activeTab === 'detail' && selectedClaim && (
+            <div className="h-full w-full overflow-y-auto bg-paper">
+              <ClaimWorkbench
+                claim={selectedClaim}
+                question={selectedQuestion || null}
+                onlyMine={onlyMine}
+                onBackToMap={() => {
+                  setIsWorkbenchOpen(false);
+                  setActiveTab('graph');
+                }}
+                onSelectQuestion={(qId) => {
+                  setSelectedNodeId(qId);
+                  setIsWorkbenchOpen(false);
+                  setActiveTab('graph');
+                }}
+                onNavigateToTab={(tab, contextId) => {
+                  if (contextId) setSelectedNodeId(contextId);
+                  setIsWorkbenchOpen(false);
+                  setActiveTab(tab);
+                }}
+                onUpdateClaim={handleUpdateClaimNode}
+              />
             </div>
           )}
 
@@ -1638,6 +1631,13 @@ export default function App() {
               paperMarks={paperMarks}
               onAddMark={handleAddPaperMark}
               onAddEvidenceToClaim={handleAddEvidenceFromPaper}
+              onRemoveEvidence={handleRemoveEvidenceFromClaim}
+              onNavigateToClaim={(claimId) => {
+                setSelectedNodeId(claimId);
+                setSelectedClaimId(claimId);
+                setIsWorkbenchOpen(true);
+                setActiveTab('graph');
+              }}
               onAddOpenProblem={handleAddOpenProblem}
               targetPassageParagraphId={targetPassageParagraphId}
               onAskAboutSelection={handleAskAboutSelection}
@@ -1649,6 +1649,7 @@ export default function App() {
             <ExperimentsPane
               questions={tagFilteredQuestions}
               selectedNodeId={selectedNodeId}
+              onlyMine={onlyMine}
               onSelectClaim={(claimId) => {
                 setSelectedNodeId(claimId);
                 setSelectedClaimId(claimId);
@@ -1661,19 +1662,39 @@ export default function App() {
               }}
             />
           )}
+
+          {activeTab === 'draft' && (
+            <DraftPane
+              manuscript={manuscript}
+              onUpdateManuscript={setManuscript}
+              questions={tagFilteredQuestions}
+              experiments={INITIAL_EXPERIMENTS_DATA}
+              onNavigateToTab={(tab, contextId) => {
+                if (contextId) {
+                  setSelectedNodeId(contextId);
+                  setSelectedClaimId(contextId);
+                }
+                setActiveTab(tab);
+              }}
+              onOpenPaper={(paperId) => {
+                handleOpenPaper(paperId);
+                setActiveTab('papers');
+              }}
+            />
+          )}
         </main>
 
-        {/* Global Assistant Dock: Resizable right-hand panel, available on every tab */}
+        {/* Resizable Examiner Dock (Placeholder) */}
         {isAssistantOpen && !isTooNarrowForAssistant && (
           <aside
-            id="global-assistant-dock-container"
-            aria-label="Global Assistant Dock"
+            id="examiner-dock-container"
+            aria-label="Examiner Dock"
             style={{ width: `${dockWidth}px` }}
-            className="relative h-full border-l border-[#ececec] dark:border-[#262626] shrink-0 overflow-visible bg-white dark:bg-[#181818]"
+            className="relative h-full border-l border-rule shrink-0 overflow-visible bg-surface"
           >
-            {/* Drag Handle: 10px hit area, 1px visible line on hover / drag, col-resize cursor */}
+            {/* Drag Handle */}
             <div
-              id="assistant-dock-drag-handle"
+              id="examiner-dock-drag-handle"
               onMouseDown={handleMouseDownDrag}
               onDoubleClick={handleDoubleClickResetDock}
               title="Drag to resize dock, double-click to reset (380px)"
@@ -1681,31 +1702,16 @@ export default function App() {
             >
               <div
                 className={`w-[1px] h-full transition-colors ${
-                  isDraggingDock
-                    ? 'bg-[#888] dark:bg-[#777]'
-                    : 'bg-transparent group-hover:bg-[#888] dark:group-hover:bg-[#777]'
+                  isDraggingDock ? 'bg-ink' : 'bg-transparent group-hover:bg-ink-muted'
                 }`}
               />
             </div>
 
-            <AssistantDock
-              dockWidth={dockWidth}
+            <ExaminerDockPlaceholder
               context={currentContext}
-              activeThread={activeThread}
-              allThreads={allThreadsList}
-              onSelectThread={setActiveThreadId}
-              onCreateNewThread={handleCreateNewThread}
-              onSendMessage={handleAssistantSendMessage}
-              isResponding={isAssistantResponding}
-              onUndoEdit={handleUndoEdit}
-              onAcceptProposal={handleAcceptProposal}
-              onRejectProposal={handleRejectProposal}
               onClearContext={handleClearContext}
-              onClickContextChip={handleClickContextChip}
               onCloseDock={() => setIsAssistantOpen(false)}
-              quotedSnippet={assistantQuotedSnippet}
-              onClearQuotedSnippet={() => setAssistantQuotedSnippet(null)}
-              onDropResearchItem={handleDropResearchItem}
+              onClickContextChip={handleClickContextChip}
             />
           </aside>
         )}
@@ -1713,3 +1719,4 @@ export default function App() {
     </div>
   );
 }
+
