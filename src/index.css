@@ -1,0 +1,124 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --color-paper: #FFFFFF;
+    --color-surface: #F8FAFC;
+    --color-ink: #0F172A;
+    --color-ink-muted: #64748B;
+    --color-rule: #E2E8F0;
+    --color-holds: #10B981;
+    --color-weak: #F59E0B;
+    --color-missing: #F43F5E;
+    
+    /* Decorative accents */
+    --accent-indigo: #6366F1;
+    --accent-indigo-soft: #EEF2FF;
+    --accent-amber: #F59E0B;
+    --accent-amber-soft: #FFFBEB;
+    --accent-emerald: #10B981;
+    --accent-emerald-soft: #ECFDF5;
+    --accent-rose: #F43F5E;
+    --accent-rose-soft: #FFF1F2;
+    --accent-teal: #0D9488;
+    --accent-teal-soft: #F0FDFA;
+    --accent-sky: #0284C7;
+    --accent-sky-soft: #F0F9FF;
+  }
+
+  .dark {
+    --color-paper: #0F172A;
+    --color-surface: #020617;
+    --color-ink: #F1F5F9;
+    --color-ink-muted: #94A3B8;
+    --color-rule: #1E293B;
+    --color-holds: #34D399;
+    --color-weak: #FBBF24;
+    --color-missing: #FB7185;
+
+    --accent-indigo: #818CF8;
+    --accent-indigo-soft: #1E1B4B;
+    --accent-amber: #FBBF24;
+    --accent-amber-soft: #451A03;
+    --accent-emerald: #34D399;
+    --accent-emerald-soft: #064E3B;
+    --accent-rose: #FB7185;
+    --accent-rose-soft: #4C0519;
+    --accent-teal: #2DD4BF;
+    --accent-teal-soft: #134E4A;
+    --accent-sky: #38BDF8;
+    --accent-sky-soft: #0C4A6E;
+  }
+
+  * {
+    border-color: var(--color-rule);
+  }
+
+  body {
+    background-color: var(--color-surface);
+    color: var(--color-ink);
+    font-family: 'Public Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+}
+
+/* Typography provenance utilities */
+.font-serif {
+  font-family: 'Newsreader', Georgia, Cambria, serif;
+}
+
+.font-sans {
+  font-family: 'Public Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.font-mono {
+  font-family: 'IBM Plex Mono', Menlo, Monaco, Consolas, monospace;
+}
+
+/* Model hatched edge styling according to §4 and docs/gui-design.md */
+.model-hatched {
+  position: relative;
+  border-left: 3px solid var(--accent-indigo);
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 5px,
+    rgba(99, 102, 241, 0.04) 5px,
+    rgba(99, 102, 241, 0.04) 10px
+  );
+}
+
+.dark .model-hatched {
+  border-left-color: var(--accent-indigo);
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 5px,
+    rgba(129, 140, 248, 0.06) 5px,
+    rgba(129, 140, 248, 0.06) 10px
+  );
+}
+
+/* Selection and focus styling */
+:focus-visible {
+  outline: 2px solid var(--accent-indigo);
+  outline-offset: 2px;
+}
+
+/* Softer scrollbar */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-rule);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-ink-muted);
+}

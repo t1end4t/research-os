@@ -1,0 +1,6 @@
+{
+  "name": "Instrument — Research OS",
+  "description": "Single-user local research tool making the structure of an argument visible and checking reasoning.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
