@@ -1,20 +1,41 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useWorkspace } from '../../context/WorkspaceContext';
+import { AssistantContextObject } from '../../types';
 import {
   X,
-  Send,
   Sparkles,
   Bot,
   CornerDownLeft,
-  AlertTriangle,
   RotateCcw,
   CheckCircle2,
   FileText,
   Link as LinkIcon,
   HelpCircle,
   ShieldAlert,
-  GripHorizontal
+  BookOpen,
+  FlaskConical,
+  Layers,
+  ArrowDownCircle,
+  AlertCircle
 } from 'lucide-react';
+
+const ContextIcon: React.FC<{ type: string; className?: string }> = ({ type, className = 'w-3 h-3' }) => {
+  switch (type) {
+    case 'node':
+      return <HelpCircle className={className} />;
+    case 'link':
+      return <LinkIcon className={className} />;
+    case 'passage':
+    case 'paper':
+      return <BookOpen className={className} />;
+    case 'artifact':
+      return <FlaskConical className={className} />;
+    case 'survey':
+      return <Layers className={className} />;
+    default:
+      return <FileText className={className} />;
+  }
+};
 
 export const AssistantDock: React.FC = () => {
   const {
@@ -24,6 +45,10 @@ export const AssistantDock: React.FC = () => {
     setDockWidth,
     activeContext,
     setActiveContext,
+    attachedContexts,
+    addAttachedContext,
+    removeAttachedContext,
+    clearAttachedContexts,
     threads,
     sendAssistantMessage,
     links
@@ -31,16 +56,18 @@ export const AssistantDock: React.FC = () => {
 
   const [inputMessage, setInputMessage] = useState<string>('');
   const [isResizing, setIsResizing] = useState<boolean>(false);
+  const [isDragOver, setIsDragOver] = useState<boolean>(false);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
 
   // Get active thread
   const contextKey = activeContext ? activeContext.id : 'global-graph';
   const messages = threads[contextKey] || [];
 
-  // Find if context is a link
-  const currentContextLink = activeContext?.type === 'link'
-    ? links.find(l => l.id === activeContext.id || l.id === activeContext.metadata?.linkId)
-    : null;
+  // Find if any attached context is an uncommitted link
+  const uncommittedLink = attachedContexts
+    .filter(c => c.type === 'link')
+    .map(c => links.find(l => l.id === c.id || l.id === c.metadata?.linkId))
+    .find(l => l && (!l.userReason || !l.userReason.trim()));
 
   // Auto-scroll transcript on new message
   useEffect(() => {
@@ -57,8 +84,8 @@ export const AssistantDock: React.FC = () => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!isResizing) return;
       const newWidth = window.innerWidth - e.clientX;
-      const minW = 300;
-      const maxW = Math.floor(window.innerWidth * 0.5);
+      const minW = 320;
+      const maxW = Math.floor(window.innerWidth * 0.55);
       setDockWidth(Math.min(Math.max(newWidth, minW), maxW));
     };
 
@@ -76,10 +103,50 @@ export const AssistantDock: React.FC = () => {
     };
   }, [isResizing, setDockWidth]);
 
+  // Drag & Drop handlers on Assistant Dock
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    if (!isDragOver) setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    // Only deactivate if leaving the dock container
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setIsDragOver(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+
+    try {
+      const rawJson = e.dataTransfer.getData('application/json');
+      if (rawJson) {
+        const parsed: AssistantContextObject = JSON.parse(rawJson);
+        addAttachedContext(parsed);
+        return;
+      }
+    } catch {
+      // fallback to plain text
+    }
+
+    const text = e.dataTransfer.getData('text/plain');
+    if (text) {
+      addAttachedContext({
+        type: 'passage',
+        id: `drop-${Date.now()}`,
+        label: text.slice(0, 40) + (text.length > 40 ? '...' : ''),
+        secondaryLabel: 'Dropped selection'
+      });
+    }
+  };
+
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputMessage.trim()) return;
-    sendAssistantMessage(contextKey, inputMessage.trim());
+    sendAssistantMessage(contextKey, inputMessage.trim(), attachedContexts);
     setInputMessage('');
   };
 
@@ -89,7 +156,12 @@ export const AssistantDock: React.FC = () => {
     <aside
       id="instrument-assistant-dock"
       style={{ width: `${dockWidth}px` }}
-      className="relative h-full border-l border-[var(--color-rule)] bg-[var(--color-surface)] flex flex-col shrink-0 select-none z-30 transition-all duration-75"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      className={`relative h-full border-l border-[var(--color-rule)] bg-[var(--color-surface)] flex flex-col shrink-0 select-none z-30 transition-all duration-75 ${
+        isDragOver ? 'ring-2 ring-indigo-500/40 bg-indigo-50/20 dark:bg-indigo-950/20' : ''
+      }`}
     >
       {/* Resizing Handle on Left Edge */}
       <div
@@ -100,12 +172,12 @@ export const AssistantDock: React.FC = () => {
 
       {/* Dock Top Header */}
       <div className="h-12 border-b border-[var(--color-rule)] bg-[var(--color-paper)] px-4 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-2">
-          <Bot className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-          <span className="font-mono text-xs uppercase tracking-wider font-bold text-slate-900 dark:text-slate-100">
-            Assistant Dock
+        <div className="flex items-center gap-2 min-w-0">
+          <Bot className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+          <span className="font-mono text-xs uppercase tracking-wider font-bold text-slate-900 dark:text-slate-100 truncate">
+            Assistant
           </span>
-          <span className="font-mono text-[10px] text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 px-2 py-0.5 rounded-full border border-indigo-200/50">
+          <span className="font-mono text-[10px] text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 px-2 py-0.5 rounded-full border border-indigo-200/50 shrink-0">
             cx/gpt-5.6-sol
           </span>
         </div>
@@ -114,76 +186,63 @@ export const AssistantDock: React.FC = () => {
           id="assistant-dock-close-btn"
           onClick={() => setIsDockOpen(false)}
           title="Close Assistant Dock (Ctrl/Cmd+J)"
-          className="p-1.5 rounded-full text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+          className="p-1.5 rounded-full text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0"
         >
           <X className="w-4 h-4" />
         </button>
       </div>
 
-      {/* Context Chip Area (Isolated Thread Representation) */}
-      <div className="px-4 py-3 border-b border-[var(--color-rule)] bg-[var(--color-surface)] flex flex-col gap-2 shrink-0">
-        <div className="flex items-center justify-between">
-          <span className="font-mono text-[9px] uppercase tracking-widest text-slate-400 font-semibold">
-            Explicit Context & Thread
+      {/* Active Thread Scope Bar */}
+      <div className="px-3.5 py-2 border-b border-[var(--color-rule)] bg-[var(--color-surface)] flex items-center justify-between text-[11px] font-mono shrink-0">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="text-slate-400 uppercase text-[9px] tracking-wider font-semibold shrink-0">Thread:</span>
+          <span className="font-medium text-slate-800 dark:text-slate-200 truncate">
+            {activeContext?.label || 'Global Graph'}
           </span>
-          {activeContext?.type !== 'graph' && (
-            <button
-              onClick={() =>
-                setActiveContext({
-                  type: 'graph',
-                  id: 'global-graph',
-                  label: 'Global Graph',
-                  secondaryLabel: 'Argument tree'
-                })
-              }
-              className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400 hover:underline font-medium"
-            >
-              Reset to Graph
-            </button>
-          )}
         </div>
-
-        {/* Current Active Context Chip */}
-        <div className="flex items-center justify-between p-2 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl shadow-2xs">
-          <div className="flex items-center gap-2 truncate">
-            <span className="font-mono text-[10px] uppercase font-bold text-indigo-700 dark:text-indigo-400 px-2 py-0.5 bg-indigo-50 dark:bg-indigo-950/60 rounded-full border border-indigo-200/50">
-              {activeContext?.type || 'graph'}
-            </span>
-            <span className="font-sans text-xs text-slate-900 dark:text-slate-100 font-semibold truncate">
-              {activeContext?.label || 'Global Graph'}
-            </span>
-          </div>
-          {activeContext?.secondaryLabel && (
-            <span className="font-mono text-[9px] text-slate-400 ml-2 shrink-0 truncate max-w-[120px]">
-              {activeContext.secondaryLabel}
-            </span>
-          )}
-        </div>
-
-        {/* Missing Reason Refusal Warning Banner if Link Dropped without reason */}
-        {currentContextLink && !currentContextLink.userReason && (
-          <div className="mt-1 p-2.5 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 rounded-xl flex items-start gap-2 text-[11px] text-rose-700 dark:text-rose-300">
-            <ShieldAlert className="w-3.5 h-3.5 shrink-0 mt-0.5 text-rose-600" />
-            <span>
-              Uncommitted Link: This relation has no user reason. The assistant refuses to check uncommitted reasoning and is strictly forbidden from writing it.
-            </span>
-          </div>
+        {activeContext?.type !== 'graph' && (
+          <button
+            onClick={() =>
+              setActiveContext({
+                type: 'graph',
+                id: 'global-graph',
+                label: 'Global Graph',
+                secondaryLabel: 'Argument tree'
+              })
+            }
+            className="text-[10px] text-indigo-600 dark:text-indigo-400 hover:underline shrink-0 font-medium"
+          >
+            Reset
+          </button>
         )}
       </div>
 
       {/* Transcript Area (Isolated Per Context) */}
       <div
         id="assistant-transcript-list"
-        className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 bg-[var(--color-surface)] font-mono text-xs select-text"
+        className="relative flex-1 overflow-y-auto p-4 flex flex-col gap-4 bg-[var(--color-surface)] font-mono text-xs select-text"
       >
+        {/* Visual Drop Overlay indicator when dragging over dock */}
+        {isDragOver && (
+          <div className="absolute inset-2 z-20 rounded-xl border-2 border-dashed border-indigo-500 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xs flex flex-col items-center justify-center gap-2 p-6 text-center pointer-events-none animate-in fade-in duration-150">
+            <ArrowDownCircle className="w-8 h-8 text-indigo-600 dark:text-indigo-400 animate-bounce" />
+            <p className="font-mono text-xs font-bold text-indigo-700 dark:text-indigo-300">
+              Drop here to attach context
+            </p>
+            <p className="text-[11px] font-sans text-slate-500">
+              Attached chips will appear above the message input
+            </p>
+          </div>
+        )}
+
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center text-slate-400 p-6 gap-2.5">
-            <Sparkles className="w-8 h-8 text-indigo-400/50" />
+            <Sparkles className="w-7 h-7 text-indigo-400/50" />
             <p className="font-mono text-xs font-semibold text-slate-700 dark:text-slate-300">
-              Thread for {activeContext?.label || 'context'}.
+              Drag and drop objects here to inspect
             </p>
-            <p className="text-[11px] font-sans text-slate-500 max-w-xs">
-              Ask questions about consistency, check link relations, or test edge hypotheses.
+            <p className="text-[11px] font-sans text-slate-500 max-w-xs leading-relaxed">
+              You can drag and drop any Question, Claim, Evidence, or Link into this dock to test reasoning.
             </p>
           </div>
         ) : (
@@ -192,12 +251,12 @@ export const AssistantDock: React.FC = () => {
             return (
               <div
                 key={msg.id}
-                className={`flex flex-col gap-1.5 ${
+                className={`flex flex-col gap-1 ${
                   isModel ? 'items-start' : 'items-end'
                 }`}
               >
-                {/* Message Author & Provenance Tag */}
-                <div className="flex items-center gap-1.5 text-[10px] text-slate-400 px-1">
+                {/* Author tag */}
+                <div className="flex items-center gap-1.5 text-[10px] text-slate-400 px-1 font-mono">
                   {isModel ? (
                     <>
                       <span className="font-semibold text-indigo-600 dark:text-indigo-400">
@@ -207,15 +266,13 @@ export const AssistantDock: React.FC = () => {
                       <span>model</span>
                     </>
                   ) : (
-                    <>
-                      <span className="font-medium">user</span>
-                    </>
+                    <span className="font-medium">user</span>
                   )}
                 </div>
 
                 {/* Message Bubble */}
                 <div
-                  className={`p-3.5 rounded-2xl max-w-[92%] leading-relaxed shadow-xs ${
+                  className={`p-3 rounded-2xl max-w-[92%] leading-relaxed shadow-xs ${
                     isModel
                       ? msg.isRefusal
                         ? 'bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 text-rose-700 dark:text-rose-300 rounded-tl-xs'
@@ -253,39 +310,97 @@ export const AssistantDock: React.FC = () => {
         <div ref={transcriptEndRef} />
       </div>
 
-      {/* Input Box Area */}
+      {/* Input Box Area with Context Attachment Row (ChatGPT / Claude web style) */}
       <form
         onSubmit={handleSend}
-        className="p-4 border-t border-[var(--color-rule)] bg-[var(--color-paper)] flex flex-col gap-2.5 shrink-0"
+        className="p-3 border-t border-[var(--color-rule)] bg-[var(--color-paper)] flex flex-col gap-2 shrink-0"
       >
-        <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
-          <span>Target Context: <strong className="text-slate-600 dark:text-slate-300">{activeContext?.label || 'Global'}</strong></span>
-          <span className="text-indigo-600 dark:text-indigo-400 font-medium">Pinned: cx/gpt-5.6-sol</span>
+        {/* Warning if any attached link has no user reason */}
+        {uncommittedLink && (
+          <div className="p-2 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 rounded-lg flex items-start gap-1.5 text-[10px] font-mono text-rose-700 dark:text-rose-300">
+            <ShieldAlert className="w-3.5 h-3.5 shrink-0 mt-0.5 text-rose-600" />
+            <span>
+              Link [<strong>{uncommittedLink.id}</strong>] has no <em>user_reason</em>. Assistant refuses to inspect uncommitted reasoning links.
+            </span>
+          </div>
+        )}
+
+        {/* The Composite Input Container (Cards above textarea, Claude/ChatGPT pattern) */}
+        <div className="border border-slate-200 dark:border-slate-700/90 rounded-xl bg-white dark:bg-slate-900 shadow-2xs overflow-hidden focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:border-indigo-500/50 transition-all">
+          
+          {/* Attached Context Chips Bar (Above Textarea with X button) */}
+          {attachedContexts.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 p-2 bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200/80 dark:border-slate-800">
+              {attachedContexts.map(ctx => (
+                <div
+                  key={ctx.id}
+                  className="inline-flex items-center gap-1.5 px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md text-[11px] font-mono shadow-2xs group"
+                >
+                  <ContextIcon type={ctx.type} className="w-3 h-3 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                  <span
+                    className="font-medium text-slate-800 dark:text-slate-200 truncate max-w-[140px]"
+                    title={ctx.label}
+                  >
+                    {ctx.label}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => removeAttachedContext(ctx.id)}
+                    className="text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 p-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors ml-0.5"
+                    title="Remove context"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+
+              {attachedContexts.length > 1 && (
+                <button
+                  type="button"
+                  onClick={clearAttachedContexts}
+                  className="text-[10px] font-mono text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:underline px-1 ml-auto"
+                >
+                  Clear all
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Textarea Input and Send Button */}
+          <div className="relative flex items-center">
+            <textarea
+              rows={2}
+              value={inputMessage}
+              onChange={e => setInputMessage(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSend(e);
+                }
+              }}
+              placeholder={
+                attachedContexts.length > 0
+                  ? `Ask about ${attachedContexts.length} attached context(s)... (Press Enter)`
+                  : "Type a prompt or drag objects here..."
+              }
+              className="w-full p-2.5 pr-10 bg-transparent text-xs font-mono text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none resize-none"
+            />
+
+            <button
+              type="submit"
+              disabled={!inputMessage.trim()}
+              title="Send (Enter)"
+              className="absolute right-2.5 bottom-2.5 p-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-30 transition-all shadow-xs"
+            >
+              <CornerDownLeft className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
 
-        <div className="relative flex items-center">
-          <textarea
-            rows={2}
-            value={inputMessage}
-            onChange={e => setInputMessage(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                handleSend(e);
-              }
-            }}
-            placeholder="Ask about link reasoning, paper passage, or check consistency..."
-            className="w-full p-3 pr-11 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-mono text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 resize-none shadow-2xs"
-          />
-
-          <button
-            type="submit"
-            disabled={!inputMessage.trim()}
-            title="Send (Enter)"
-            className="absolute right-3 bottom-3 p-1.5 rounded-full bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-30 transition-all shadow-xs"
-          >
-            <CornerDownLeft className="w-3.5 h-3.5" />
-          </button>
+        {/* Footer info note */}
+        <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 px-0.5">
+          <span>Drag node / link into dock</span>
+          <span className="text-indigo-600 dark:text-indigo-400">cx/gpt-5.6-sol</span>
         </div>
       </form>
     </aside>

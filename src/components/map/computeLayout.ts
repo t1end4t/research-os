@@ -39,16 +39,16 @@ export interface ComputedLayout {
 }
 
 const COL_X = {
-  question: 60,
-  claim: 450,
-  evidence: 830
+  question: 80,
+  claim: 580,
+  evidence: 1060
 };
 
 const NODE_WIDTH = {
-  question: 330,
+  question: 340,
   claim: 300,
-  evidence: 290,
-  ghost: 290
+  evidence: 300,
+  ghost: 300
 };
 
 const NODE_HEIGHT = {
@@ -287,17 +287,19 @@ export function computeMapLayout(
     : edges.filter(e => e.status === linkStatusFilter);
 
   // Compute bounding box
+  const minX = nodes.length > 0 ? Math.min(...nodes.map(n => n.x)) : 80;
+  const minY = nodes.length > 0 ? Math.min(...nodes.map(n => n.y)) : 40;
   const allX = nodes.map(n => n.x + n.width);
   const allY = nodes.map(n => n.y + n.height);
-  const maxX = Math.max(1200, ...allX) + 80;
-  const maxY = Math.max(700, ...allY) + 80;
+  const maxX = Math.max(1480, ...allX) + 120;
+  const maxY = Math.max(720, ...allY) + 100;
 
   return {
     nodes,
     edges: finalEdges,
     bounds: {
-      minX: 0,
-      minY: 0,
+      minX,
+      minY,
       maxX,
       maxY,
       width: maxX,
@@ -308,7 +310,9 @@ export function computeMapLayout(
 
 /**
  * Creates orthogonal elbow path: [M x1 y1] -> [L midX y1] -> [L midX y2] -> [L x2 y2]
- * with rounded corner (radius 2px).
+ * with rounded corner (radius 14px max).
+ * The label/midpoint is placed on the incoming horizontal branch to the child (x2, y2)
+ * so that the vertical trunk remains completely clear and sibling labels do not overlap.
  */
 function createOrthogonalEdge(
   id: string,
@@ -323,16 +327,21 @@ function createOrthogonalEdge(
   userReason?: string,
   linkId?: string
 ): LayoutEdge {
-  const midX = x1 + (x2 - x1) / 2;
+  const midX = x1 + (x2 - x1) * 0.45;
   const dy = y2 > y1 ? 1 : -1;
   const deltaY = Math.abs(y1 - y2);
-  const maxR = 16;
-  const r = Math.max(2, Math.min(maxR, deltaY / 2, (x2 - x1) / 4));
+  const maxR = 14;
+  const r = Math.max(2, Math.min(maxR, deltaY / 2, (x2 - x1) / 6));
 
   let path = '';
+  let labelX: number;
+  let labelY: number;
+
   if (deltaY < 3) {
     // Direct horizontal line
     path = `M ${x1} ${y1} L ${x2} ${y2}`;
+    labelX = (x1 + x2) / 2;
+    labelY = y1;
   } else {
     // Soft curved orthogonal elbow
     path = `M ${x1} ${y1} ` +
@@ -341,6 +350,11 @@ function createOrthogonalEdge(
       `L ${midX} ${y2 - r * dy} ` +
       `Q ${midX} ${y2}, ${midX + r} ${y2} ` +
       `L ${x2} ${y2}`;
+
+    // Place label on the horizontal branch entering the child node
+    // Leaving the vertical trunk at midX completely visible without clutter
+    labelX = midX + (x2 - midX) * 0.5;
+    labelY = y2;
   }
 
   return {
@@ -351,7 +365,7 @@ function createOrthogonalEdge(
     status,
     userReason,
     path,
-    midpoint: { x: midX, y: (y1 + y2) / 2 },
+    midpoint: { x: labelX, y: labelY },
     isGhost
   };
 }

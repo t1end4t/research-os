@@ -105,8 +105,8 @@ export const Rail: React.FC = () => {
         })}
       </div>
 
-      <div className="flex flex-col items-center text-[10px] font-mono text-slate-400 dark:text-slate-600 rotate-180 writing-vertical py-2 opacity-60 pointer-events-none">
-        INSTRUMENT
+      <div className="flex flex-col items-center pb-2 text-[9px] font-mono text-[var(--color-ink-muted)] opacity-60 pointer-events-none">
+        v0.2
       </div>
     </aside>
   );

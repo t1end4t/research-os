@@ -35,13 +35,13 @@ export const TopBar: React.FC = () => {
       {/* Left: Brand and Workspace locator */}
       <div className="flex items-center gap-3.5">
         <div className="flex items-center gap-2.5">
-          <div className="w-5 h-5 rounded-lg bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center text-white shadow-xs">
+          <div className="w-5 h-5 rounded bg-slate-900 dark:bg-slate-100 flex items-center justify-center text-white dark:text-slate-900 shadow-xs">
             <span className="font-mono text-[11px] font-bold">I</span>
           </div>
           <span className="font-mono tracking-[0.14em] uppercase font-bold text-[13px] text-[var(--color-ink)]">
             INSTRUMENT
           </span>
-          <span className="text-indigo-600/80 dark:text-indigo-400/80 text-[10px] font-mono bg-indigo-50 dark:bg-indigo-950/60 px-1.5 py-0.5 rounded-full border border-indigo-200/50 dark:border-indigo-800/50">
+          <span className="text-[var(--color-ink-muted)] text-[10px] font-mono bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-[var(--color-rule)]">
             v0.2.0
           </span>
         </div>
@@ -159,15 +159,15 @@ export const TopBar: React.FC = () => {
           id="dock-toggle-btn"
           onClick={toggleDock}
           title="Toggle Assistant Dock (Ctrl/Cmd+J)"
-          className={`px-3 py-1.5 flex items-center gap-2 rounded-full border transition-all duration-200 font-sans text-[11px] shadow-2xs ${
+          className={`px-3 py-1.5 flex items-center gap-2 rounded-lg border transition-all duration-150 font-mono text-[11px] select-none ${
             isDockOpen
-              ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white border-transparent shadow-sm shadow-indigo-500/20 font-medium'
-              : 'border-[var(--color-rule)] text-[var(--color-ink-muted)] hover:text-[var(--color-ink)] hover:bg-[var(--color-paper)] hover:border-slate-400/60'
+              ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 border-transparent shadow-xs font-semibold'
+              : 'border-[var(--color-rule)] bg-[var(--color-surface)] text-[var(--color-ink-muted)] hover:text-[var(--color-ink)] hover:border-slate-400 dark:hover:border-slate-600'
           }`}
         >
           <PanelRight className="w-3.5 h-3.5" />
           <span>Assistant</span>
-          <kbd className={`text-[9px] font-mono px-1 rounded-full ${isDockOpen ? 'bg-white/20 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'}`}>
+          <kbd className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${isDockOpen ? 'bg-white/20 text-white dark:bg-black/10 dark:text-black' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'}`}>
             ⌘J
           </kbd>
         </button>

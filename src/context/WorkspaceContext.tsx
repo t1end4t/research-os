@@ -89,8 +89,12 @@ interface WorkspaceContextValue {
   setDockWidth: (width: number) => void;
   activeContext: AssistantContextObject | null;
   setActiveContext: (context: AssistantContextObject | null) => void;
+  attachedContexts: AssistantContextObject[];
+  addAttachedContext: (ctx: AssistantContextObject) => void;
+  removeAttachedContext: (id: string) => void;
+  clearAttachedContexts: () => void;
   threads: Record<string, AssistantMessage[]>;
-  sendAssistantMessage: (contextId: string, userText: string) => void;
+  sendAssistantMessage: (contextId: string, userText: string, attachedList?: AssistantContextObject[]) => void;
   checkLinkWithAssistant: (linkId: string) => void;
 }
 
@@ -125,6 +129,23 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     label: 'Global Graph',
     secondaryLabel: '3 questions, 3 claims, 5 evidence'
   });
+  const [attachedContexts, setAttachedContexts] = useState<AssistantContextObject[]>([]);
+
+  const addAttachedContext = useCallback((ctx: AssistantContextObject) => {
+    setAttachedContexts(prev => {
+      if (prev.some(item => item.id === ctx.id)) return prev;
+      return [...prev, ctx];
+    });
+    setIsDockOpen(true);
+  }, []);
+
+  const removeAttachedContext = useCallback((id: string) => {
+    setAttachedContexts(prev => prev.filter(item => item.id !== id));
+  }, []);
+
+  const clearAttachedContexts = useCallback(() => {
+    setAttachedContexts([]);
+  }, []);
 
   // Isolated transcript threads per context ID
   const [threads, setThreads] = useState<Record<string, AssistantMessage[]>>({
@@ -377,7 +398,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, []);
 
   // Assistant messaging with strict context isolation
-  const sendAssistantMessage = useCallback((contextId: string, userText: string) => {
+  const sendAssistantMessage = useCallback((contextId: string, userText: string, attachedList?: AssistantContextObject[]) => {
     const userMsg: AssistantMessage = {
       id: `msg-${Date.now()}`,
       role: 'user',
@@ -398,6 +419,11 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     let replyContent = '';
     let isRefusal = false;
 
+    // Evaluate attached items
+    const effectiveContexts = attachedList && attachedList.length > 0 ? attachedList : attachedContexts;
+    const attachedLink = effectiveContexts.find(c => c.type === 'link');
+    const realLink = attachedLink ? links.find(l => l.id === attachedLink.id || l.id === attachedLink.metadata?.linkId) : null;
+
     if (lower.includes('write my reason') || lower.includes('write a reason') || lower.includes('generate user reason') || lower.includes('fill the reason')) {
       isRefusal = true;
       replyContent = 'REFUSAL [§4 MUST NOT]: The assistant is strictly prohibited from writing or editing any user_reason field. The link check is meaningful only because you commit your reasoning first. If the model writes the reason, it grades its own work and the entire tool loses its purpose.';
@@ -407,6 +433,14 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     } else if (lower.includes('generate research questions') || lower.includes('suggest new topics') || lower.includes('interesting questions')) {
       isRefusal = true;
       replyContent = 'REFUSAL [§4 MUST NOT]: Questions must originate from argument structure (an unsupported claim, an unresolved mismatch, a cluster of open problems), never generated from generic topic prompts.';
+    } else if (realLink && (!realLink.userReason || !realLink.userReason.trim())) {
+      isRefusal = true;
+      replyContent = `REFUSAL [§4 MUST NOT]: Attached link [${realLink.id}] has no committed user_reason. The assistant refuses to check an uncommitted reasoning link and is strictly forbidden from writing it.`;
+    } else if (realLink && (lower.includes('check') || lower.includes('reasoning') || lower.includes('link') || lower.includes('evaluate'))) {
+      replyContent = `Link Check Evaluation [${realLink.id}]:\n\nUser Reason: "${realLink.userReason}"\n\nChecks:\n- Type: Pass (Appropriate formal evidence matches claim assertion)\n- Scope: Partial (Finding holds within empirical parameter domain)\n- Target: Pass (Directly tests underlying causal mechanism)\n\n[cx/gpt-5.6-sol] Finding: The relation is structurally sound under stated scope constraints.`;
+    } else if (effectiveContexts.length > 0) {
+      const contextSummary = effectiveContexts.map(c => `• ${c.label}`).join('\n');
+      replyContent = `[cx/gpt-5.6-sol] Evaluated with ${effectiveContexts.length} attached context(s):\n${contextSummary}\n\nAnalysis: The argument structure has been cross-referenced. No structural contradictions detected between the attached entities and your active reasoning tree.`;
     } else if (lower.includes('check') || lower.includes('reasoning') || lower.includes('link')) {
       replyContent = 'Link Check Evaluation:\nExamined structural validity of parent-child relation.\n\nType: Pass (Claim and evidence align on theoretical level)\nScope: Partial (Evidence holds in specific empirical parameter range)\nTarget: Pass (Target metric corresponds directly to claim assertion)\n\n[cx/gpt-5.6-sol] Finding: The argument holds within the specified domain boundaries.';
     } else {
@@ -431,7 +465,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         };
       });
     }, 180);
-  }, [activeContext]);
+  }, [activeContext, attachedContexts, links]);
 
   // Model checking on a link
   const checkLinkWithAssistant = useCallback((linkId: string) => {
@@ -517,6 +551,10 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setDockWidth,
         activeContext,
         setActiveContext,
+        attachedContexts,
+        addAttachedContext,
+        removeAttachedContext,
+        clearAttachedContexts,
         threads,
         sendAssistantMessage,
         checkLinkWithAssistant

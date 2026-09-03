@@ -9,7 +9,8 @@ import {
   Minimize2,
   GripVertical,
   HelpCircle,
-  Sparkles
+  Sparkles,
+  Plus
 } from 'lucide-react';
 
 export const MapSurface: React.FC = () => {
@@ -25,7 +26,8 @@ export const MapSurface: React.FC = () => {
     selectedLinkId,
     setSelectedLinkId,
     clearSelection,
-    setActiveContext
+    setActiveContext,
+    addAttachedContext
   } = useWorkspace();
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -35,6 +37,10 @@ export const MapSurface: React.FC = () => {
   const [offset, setOffset] = useState<{ x: number; y: number }>({ x: 40, y: 30 });
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [dragStart, setDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  // Hover states for dynamic relationship highlighting
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  const [hoveredLinkId, setHoveredLinkId] = useState<string | null>(null);
 
   // Compute Layout deterministically
   const layout = useMemo(() => {
@@ -48,29 +54,119 @@ export const MapSurface: React.FC = () => {
     );
   }, [questions, claims, evidence, links, activeTag, linkStatusFilter]);
 
+  // Zoom limits: Keep zoom between 70% and 150% so text and labels are always sharp, readable and never shrink to blank shapes
+  const MIN_SCALE = 0.70;
+  const MAX_SCALE = 1.50;
+
   // Determine Semantic Zoom level:
-  // - SHAPE: scale < 0.55
-  // - STRUCTURE: 0.55 <= scale <= 1.3
-  // - WORKING: scale > 1.3
-  const zoomLevel: 'shape' | 'structure' | 'working' = useMemo(() => {
-    if (scale < 0.55) return 'shape';
-    if (scale <= 1.3) return 'structure';
+  // - STRUCTURE: 0.70 <= scale <= 1.15
+  // - WORKING: scale > 1.15
+  const zoomLevel: 'structure' | 'working' = useMemo(() => {
+    if (scale <= 1.15) return 'structure';
     return 'working';
   }, [scale]);
+
+  // Compute Dynamic Relationship Graph for Active Hover/Selection
+  // When hovering or selecting any node/edge, all related nodes & edges in its branch light up!
+  const { relatedNodeIds, relatedEdgeIds, hasActiveHighlight } = useMemo(() => {
+    // Priority: hovered element first, fallback to selected element
+    const activeNodeId = hoveredNodeId || (!hoveredLinkId ? selectedNodeId : null);
+    const activeLinkId = hoveredLinkId || (!hoveredNodeId ? selectedLinkId : null);
+
+    const rNodes = new Set<string>();
+    const rEdges = new Set<string>();
+
+    if (!activeNodeId && !activeLinkId) {
+      return { relatedNodeIds: rNodes, relatedEdgeIds: rEdges, hasActiveHighlight: false };
+    }
+
+    if (activeNodeId) {
+      rNodes.add(activeNodeId);
+
+      // Walk UP (Ancestors)
+      const walkUp = (currId: string) => {
+        for (const edge of layout.edges) {
+          if (edge.targetId === currId) {
+            rEdges.add(edge.id);
+            if (edge.linkId) rEdges.add(edge.linkId);
+            rNodes.add(edge.sourceId);
+            walkUp(edge.sourceId);
+          }
+        }
+      };
+      walkUp(activeNodeId);
+
+      // Walk DOWN (Descendants)
+      const walkDown = (currId: string) => {
+        for (const edge of layout.edges) {
+          if (edge.sourceId === currId) {
+            rEdges.add(edge.id);
+            if (edge.linkId) rEdges.add(edge.linkId);
+            rNodes.add(edge.targetId);
+            walkDown(edge.targetId);
+          }
+        }
+      };
+      walkDown(activeNodeId);
+    }
+
+    if (activeLinkId) {
+      const activeEdge = layout.edges.find(e => e.linkId === activeLinkId || e.id === activeLinkId);
+      if (activeEdge) {
+        rEdges.add(activeEdge.id);
+        if (activeEdge.linkId) rEdges.add(activeEdge.linkId);
+        rNodes.add(activeEdge.sourceId);
+        rNodes.add(activeEdge.targetId);
+
+        // Walk UP from source
+        const walkUp = (currId: string) => {
+          for (const edge of layout.edges) {
+            if (edge.targetId === currId) {
+              rEdges.add(edge.id);
+              if (edge.linkId) rEdges.add(edge.linkId);
+              rNodes.add(edge.sourceId);
+              walkUp(edge.sourceId);
+            }
+          }
+        };
+        walkUp(activeEdge.sourceId);
+
+        // Walk DOWN from target
+        const walkDown = (currId: string) => {
+          for (const edge of layout.edges) {
+            if (edge.sourceId === currId) {
+              rEdges.add(edge.id);
+              if (edge.linkId) rEdges.add(edge.linkId);
+              rNodes.add(edge.targetId);
+              walkDown(edge.targetId);
+            }
+          }
+        };
+        walkDown(activeEdge.targetId);
+      }
+    }
+
+    return { relatedNodeIds: rNodes, relatedEdgeIds: rEdges, hasActiveHighlight: true };
+  }, [hoveredNodeId, hoveredLinkId, selectedNodeId, selectedLinkId, layout.edges]);
 
   // Fit to screen
   const handleFit = useCallback(() => {
     if (!containerRef.current) return;
     const { clientWidth, clientHeight } = containerRef.current;
-    const padding = 80;
-    const scaleX = (clientWidth - padding * 2) / layout.bounds.width;
-    const scaleY = (clientHeight - padding * 2) / layout.bounds.height;
-    const fitScale = Math.min(Math.max(Math.min(scaleX, scaleY), 0.4), 1.2);
+    const paddingX = 80;
+    const paddingY = 80;
+    const graphWidth = Math.max(layout.bounds.maxX - layout.bounds.minX, 400);
+    const graphHeight = Math.max(layout.bounds.maxY - layout.bounds.minY, 300);
+
+    const scaleX = (clientWidth - paddingX * 2) / graphWidth;
+    const scaleY = (clientHeight - paddingY * 2) / graphHeight;
+    // Bounded fit scale so graphs never fit below MIN_SCALE
+    const fitScale = Math.min(Math.max(Math.min(scaleX, scaleY), MIN_SCALE), 1.15);
     
     setScale(fitScale);
     setOffset({
-      x: (clientWidth - layout.bounds.width * fitScale) / 2,
-      y: (clientHeight - layout.bounds.height * fitScale) / 2
+      x: (clientWidth - graphWidth * fitScale) / 2 - layout.bounds.minX * fitScale,
+      y: (clientHeight - graphHeight * fitScale) / 2 - layout.bounds.minY * fitScale
     });
   }, [layout.bounds]);
 
@@ -98,11 +194,11 @@ export const MapSurface: React.FC = () => {
     setIsDragging(false);
   };
 
-  // Wheel zoom
+  // Wheel zoom with strictly bounded scale
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
     const zoomFactor = e.deltaY < 0 ? 1.08 : 0.92;
-    const newScale = Math.min(Math.max(scale * zoomFactor, 0.35), 2.2);
+    const newScale = Math.min(Math.max(scale * zoomFactor, MIN_SCALE), MAX_SCALE);
 
     if (!containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
@@ -125,18 +221,40 @@ export const MapSurface: React.FC = () => {
     }
   };
 
-  // Send Edge to Assistant Dock
+  // Drag edge into chat dock
+  const handleEdgeDragStart = (edge: LayoutEdge, e: React.DragEvent) => {
+    e.stopPropagation();
+    const linkObj = {
+      type: 'link' as const,
+      id: edge.linkId || edge.id,
+      label: `[LINK] ${edge.sourceId} → ${edge.targetId}`,
+      secondaryLabel: edge.userReason ? `Reason: "${edge.userReason.slice(0, 30)}..."` : 'No user reason',
+      metadata: {
+        linkId: edge.linkId,
+        sourceId: edge.sourceId,
+        targetId: edge.targetId,
+        status: edge.status
+      }
+    };
+    e.dataTransfer.setData('application/json', JSON.stringify(linkObj));
+    e.dataTransfer.setData('text/plain', `[LINK] ${edge.sourceId} → ${edge.targetId}`);
+    e.dataTransfer.effectAllowed = 'copy';
+  };
+
+  // Send Edge to Assistant Dock (click or button)
   const handleSendEdgeToDock = (edge: LayoutEdge, e: React.MouseEvent) => {
     e.stopPropagation();
     if (edge.linkId) {
       setSelectedLinkId(edge.linkId);
-      setActiveContext({
-        type: 'link',
+      const linkObj = {
+        type: 'link' as const,
         id: edge.linkId,
-        label: `Link: ${edge.sourceId} → ${edge.targetId}`,
+        label: `[LINK] ${edge.sourceId} → ${edge.targetId}`,
         secondaryLabel: edge.userReason ? `Reason: "${edge.userReason.slice(0, 35)}..."` : 'No user reason',
-        metadata: { linkId: edge.linkId }
-      });
+        metadata: { linkId: edge.linkId, status: edge.status }
+      };
+      setActiveContext(linkObj);
+      addAttachedContext(linkObj);
     }
   };
 
@@ -144,40 +262,29 @@ export const MapSurface: React.FC = () => {
   const handleNodeClick = (node: LayoutNode) => {
     setSelectedNodeId(node.id);
     setSelectedLinkId(null);
-    setActiveContext({
+    const nodeObj = {
+      type: 'node' as const,
+      id: node.id,
+      label: `[${node.type.toUpperCase()}] ${node.title.slice(0, 30)}...`,
+      secondaryLabel: `Type: ${node.type}`
+    };
+    setActiveContext(nodeObj);
+  };
+
+  // Add node to attached context in chat
+  const handleAddNodeToContext = (node: LayoutNode, e: React.MouseEvent) => {
+    e.stopPropagation();
+    addAttachedContext({
       type: 'node',
       id: node.id,
-      label: `${node.type.toUpperCase()}: ${node.title.slice(0, 30)}...`,
-      secondaryLabel: `Type: ${node.type}`
-    });
-  };
-
-  // Check if edge is selected or connected to selected node
-  const isEdgeSelected = (edge: LayoutEdge) => {
-    if (selectedLinkId && edge.linkId === selectedLinkId) return true;
-    if (selectedNodeId && (edge.sourceId === selectedNodeId || edge.targetId === selectedNodeId)) return true;
-    return false;
-  };
-
-  // Check if node is dimmed
-  const isNodeDimmed = (node: LayoutNode) => {
-    if (!selectedNodeId && !selectedLinkId) return false;
-    if (selectedNodeId) {
-      if (node.id === selectedNodeId) return false;
-      // Is connected to selected node?
-      const isConnected = layout.edges.some(
-        e => (e.sourceId === selectedNodeId && e.targetId === node.id) ||
-             (e.targetId === selectedNodeId && e.sourceId === node.id)
-      );
-      return !isConnected;
-    }
-    if (selectedLinkId) {
-      const activeEdge = layout.edges.find(e => e.linkId === selectedLinkId);
-      if (activeEdge) {
-        return node.id !== activeEdge.sourceId && node.id !== activeEdge.targetId;
+      label: `[${node.type.toUpperCase()}] ${node.title}`,
+      secondaryLabel: node.type === 'evidence' ? node.citation : node.tags?.join(', '),
+      metadata: {
+        nodeType: node.type,
+        nodeId: node.id,
+        title: node.title
       }
-    }
-    return false;
+    });
   };
 
   return (
@@ -189,13 +296,13 @@ export const MapSurface: React.FC = () => {
       onMouseUp={handleMouseUp}
       onWheel={handleWheel}
       onClick={() => clearSelection()}
-      className="relative flex-1 h-full w-full overflow-hidden bg-[var(--color-surface)] select-none cursor-grab active:cursor-grabbing"
+      className="relative flex-1 h-full w-full overflow-hidden bg-[var(--color-paper)] select-none cursor-grab active:cursor-grabbing"
     >
       {/* Background Subtle Dot Matrix Grid */}
       <div
-        className="absolute inset-0 pointer-events-none opacity-20"
+        className="absolute inset-0 pointer-events-none opacity-40 dark:opacity-20"
         style={{
-          backgroundImage: 'radial-gradient(var(--color-rule) 1px, transparent 1px)',
+          backgroundImage: 'radial-gradient(var(--color-rule) 1.2px, transparent 1.2px)',
           backgroundSize: `${24 * scale}px ${24 * scale}px`,
           backgroundPosition: `${offset.x}px ${offset.y}px`
         }}
@@ -210,53 +317,86 @@ export const MapSurface: React.FC = () => {
           width: layout.bounds.width,
           height: layout.bounds.height
         }}
-        className="absolute transition-transform duration-75 ease-out"
+        className="absolute left-0 top-0 pointer-events-none"
       >
-        {/* SVG Edges Layer */}
+        {/* Column Guides in canvas space */}
+        <div
+          style={{ left: 80, top: Math.max(layout.bounds.minY - 32, 16) }}
+          className="absolute flex items-center gap-1.5 pointer-events-none"
+        >
+          <span className="font-mono text-[10px] tracking-widest uppercase font-semibold text-[var(--color-ink-muted)] opacity-70">
+            QUESTIONS
+          </span>
+        </div>
+        <div
+          style={{ left: 580, top: Math.max(layout.bounds.minY - 32, 16) }}
+          className="absolute flex items-center gap-1.5 pointer-events-none"
+        >
+          <span className="font-mono text-[10px] tracking-widest uppercase font-semibold text-[var(--color-ink-muted)] opacity-70">
+            CLAIMS
+          </span>
+        </div>
+        <div
+          style={{ left: 1060, top: Math.max(layout.bounds.minY - 32, 16) }}
+          className="absolute flex items-center gap-1.5 pointer-events-none"
+        >
+          <span className="font-mono text-[10px] tracking-widest uppercase font-semibold text-[var(--color-ink-muted)] opacity-70">
+            EVIDENCE (FINDINGS)
+          </span>
+        </div>
+
+        {/* SVG Edge Canvas Layer */}
         <svg
-          id="map-svg-edges"
-          className="absolute inset-0 pointer-events-none overflow-visible w-full h-full"
+          className="absolute inset-0 w-full h-full pointer-events-none overflow-visible"
+          style={{ width: layout.bounds.width, height: layout.bounds.height }}
         >
           {layout.edges.map(edge => {
-            const selected = isEdgeSelected(edge);
+            const isEdgeSelected = selectedLinkId === edge.linkId;
+            const isEdgeHovered = hoveredLinkId === (edge.linkId || edge.id);
+            const isEdgeRelated = hasActiveHighlight && (relatedEdgeIds.has(edge.id) || (edge.linkId ? relatedEdgeIds.has(edge.linkId) : false));
+            const isEdgeDimmed = hasActiveHighlight && !isEdgeRelated;
 
             // Edge stroke styling based on strict spec:
-            // - holds: 1px solid, 50% opacity green
-            // - weak: 2px solid amber, clearly visible
-            // - missing: 2px dashed '6 4' red, visually loudest
-            // - unchecked: 1px neutral dotted
+            // - holds: green
+            // - weak: amber
+            // - missing: dashed red
             let strokeColor = 'var(--color-rule)';
-            let strokeWidth = 1.5;
+            let strokeWidth = 1.6;
             let strokeDasharray = '';
             let opacity = 0.85;
 
             if (edge.status === 'holds') {
               strokeColor = 'var(--color-holds)';
-              strokeWidth = selected ? 2.5 : 1.5;
-              opacity = selected ? 1 : 0.65;
+              strokeWidth = isEdgeHovered ? 3.5 : isEdgeRelated || isEdgeSelected ? 2.6 : 1.6;
+              opacity = isEdgeDimmed ? 0.15 : 0.85;
             } else if (edge.status === 'weak') {
               strokeColor = 'var(--color-weak)';
-              strokeWidth = selected ? 3 : 2;
-              opacity = 1;
+              strokeWidth = isEdgeHovered ? 3.8 : isEdgeRelated || isEdgeSelected ? 3 : 2;
+              opacity = isEdgeDimmed ? 0.15 : 1;
             } else if (edge.status === 'missing') {
               strokeColor = 'var(--color-missing)';
-              strokeWidth = selected ? 3 : 2.2;
+              strokeWidth = isEdgeHovered ? 3.8 : isEdgeRelated || isEdgeSelected ? 3 : 2.2;
               strokeDasharray = '6 4';
-              opacity = 1;
+              opacity = isEdgeDimmed ? 0.15 : 1;
             } else if (edge.isGhost) {
               strokeColor = 'var(--color-rule)';
               strokeDasharray = '4 4';
-              opacity = 0.5;
+              opacity = isEdgeDimmed ? 0.1 : 0.5;
             }
 
             return (
-              <g key={edge.id} className="cursor-pointer">
-                {/* Transparent 14px hit area for easy clicking */}
+              <g
+                key={edge.id}
+                className="cursor-pointer"
+                onMouseEnter={() => setHoveredLinkId(edge.linkId || edge.id)}
+                onMouseLeave={() => setHoveredLinkId(null)}
+              >
+                {/* Transparent 16px hit area for easy clicking and hover */}
                 <path
                   d={edge.path}
                   fill="none"
                   stroke="transparent"
-                  strokeWidth={14}
+                  strokeWidth={16}
                   className="pointer-events-auto"
                   onClick={e => {
                     e.stopPropagation();
@@ -279,24 +419,35 @@ export const MapSurface: React.FC = () => {
           })}
         </svg>
 
-        {/* Edge Midpoint Grip / Status Chips */}
+        {/* Edge Midpoint Grip / Status Chips - Floating above the line to never obscure it */}
         {layout.edges.map(edge => {
           if (edge.isGhost) return null;
           const isSelected = selectedLinkId === edge.linkId;
+          const isEdgeHovered = hoveredLinkId === (edge.linkId || edge.id);
+          const isEdgeRelated = hasActiveHighlight && (relatedEdgeIds.has(edge.id) || (edge.linkId ? relatedEdgeIds.has(edge.linkId) : false));
+          const isEdgeDimmed = hasActiveHighlight && !isEdgeRelated;
 
-          let statusDot = 'bg-emerald-500 ring-2 ring-emerald-200 dark:ring-emerald-950';
-          let statusText = 'text-emerald-700 dark:text-emerald-300';
+          let statusDot = 'bg-emerald-600 ring-2 ring-emerald-200 dark:ring-emerald-950';
+          let statusText = 'text-emerald-700 dark:text-emerald-400';
           if (edge.status === 'weak') {
-            statusDot = 'bg-amber-500 ring-2 ring-amber-200 dark:ring-amber-950';
-            statusText = 'text-amber-700 dark:text-amber-300';
+            statusDot = 'bg-amber-600 ring-2 ring-amber-200 dark:ring-amber-950';
+            statusText = 'text-amber-700 dark:text-amber-400';
           } else if (edge.status === 'missing') {
-            statusDot = 'bg-rose-500 ring-2 ring-rose-200 dark:ring-rose-950';
-            statusText = 'text-rose-700 dark:text-rose-300';
+            statusDot = 'bg-rose-600 ring-2 ring-rose-200 dark:ring-rose-950';
+            statusText = 'text-rose-700 dark:text-rose-400';
           }
 
           return (
             <div
               key={`mid-${edge.id}`}
+              draggable={true}
+              onDragStart={e => handleEdgeDragStart(edge, e)}
+              onMouseEnter={() => setHoveredLinkId(edge.linkId || edge.id)}
+              onMouseLeave={() => setHoveredLinkId(null)}
+              onMouseDown={e => {
+                // Prevent canvas drag from conflicting with edge grip
+                e.stopPropagation();
+              }}
               style={{
                 left: edge.midpoint.x,
                 top: edge.midpoint.y
@@ -305,14 +456,18 @@ export const MapSurface: React.FC = () => {
                 e.stopPropagation();
                 handleEdgeClick(edge);
               }}
-              className={`absolute -translate-x-1/2 -translate-y-1/2 z-10 flex items-center gap-1.5 px-2.5 py-1 rounded-full cursor-pointer border transition-all duration-200 select-none shadow-xs ${
+              className={`absolute -translate-x-1/2 -translate-y-[calc(100%+4px)] z-10 flex items-center gap-1.5 px-2 py-0.5 rounded-full pointer-events-auto cursor-grab active:cursor-grabbing border transition-all duration-150 select-none shadow-2xs ${
                 isSelected
-                  ? 'bg-white dark:bg-slate-900 border-indigo-500 ring-2 ring-indigo-500/20 shadow-md scale-105'
-                  : 'bg-white/95 dark:bg-slate-900/95 border-slate-200/90 dark:border-slate-800 hover:border-slate-400 hover:shadow-sm'
-              }`}
-              title={`Edge: ${edge.status} (Click to inspect, send grip to assistant)`}
+                  ? 'bg-[var(--color-surface)] border-[var(--color-ink)] ring-2 ring-[var(--color-ink)]/15 shadow-sm scale-105 z-20'
+                  : isEdgeHovered
+                  ? 'bg-[var(--color-surface)] border-indigo-500 ring-2 ring-indigo-500/30 scale-105 z-25'
+                  : isEdgeRelated
+                  ? 'bg-[var(--color-surface)] border-indigo-300 dark:border-indigo-700 ring-1 ring-indigo-400/30 shadow-xs z-15'
+                  : 'bg-[var(--color-surface)] border-[var(--color-rule)] hover:border-slate-400 dark:hover:border-slate-500 hover:shadow-xs'
+              } ${isEdgeDimmed ? 'opacity-20' : 'opacity-100'}`}
+              title={`Link: ${edge.status} (Drag to Assistant Dock or click to inspect)`}
             >
-              <span className={`w-2 h-2 rounded-full ${statusDot}`} />
+              <span className={`w-1.5 h-1.5 rounded-full ${statusDot}`} />
               <span className={`font-mono text-[9px] uppercase tracking-wider font-semibold ${statusText}`}>
                 {edge.status}
               </span>
@@ -320,8 +475,8 @@ export const MapSurface: React.FC = () => {
               {/* Grip icon for Assistant Dock */}
               <button
                 onClick={e => handleSendEdgeToDock(edge, e)}
-                title="Send link to Assistant"
-                className="hover:text-indigo-600 dark:hover:text-indigo-400 text-slate-400 dark:text-slate-500 ml-0.5 transition-colors"
+                title="Attach link to Assistant context (+ Context)"
+                className="hover:text-indigo-600 dark:hover:text-indigo-400 text-[var(--color-ink-muted)] opacity-60 hover:opacity-100 ml-0.5 transition-opacity"
               >
                 <GripVertical className="w-2.5 h-2.5" />
               </button>
@@ -329,73 +484,81 @@ export const MapSurface: React.FC = () => {
           );
         })}
 
-        {/* Node Cards Layer */}
-        {layout.nodes.map(node => (
-          <NodeCard
-            key={node.id}
-            node={node}
-            zoomLevel={zoomLevel}
-            isSelected={selectedNodeId === node.id}
-            isDimmed={isNodeDimmed(node)}
-            onClick={() => handleNodeClick(node)}
-          />
-        ))}
+        {/* Node Cards Layer with Dynamic Relationship Highlighting */}
+        {layout.nodes.map(node => {
+          const isSelected = selectedNodeId === node.id;
+          const isHovered = hoveredNodeId === node.id;
+          const isRelated = hasActiveHighlight && relatedNodeIds.has(node.id);
+          const isDimmed = hasActiveHighlight && !relatedNodeIds.has(node.id);
+
+          return (
+            <NodeCard
+              key={node.id}
+              node={node}
+              zoomLevel={zoomLevel}
+              isSelected={isSelected}
+              isHovered={isHovered}
+              isRelated={isRelated}
+              isDimmed={isDimmed}
+              onClick={() => handleNodeClick(node)}
+              onMouseEnter={() => setHoveredNodeId(node.id)}
+              onMouseLeave={() => setHoveredNodeId(null)}
+              onAddToContext={e => handleAddNodeToContext(node, e)}
+            />
+          );
+        })}
       </div>
 
-      {/* Floating Zoom & Semantic Level HUD (Bottom-Left) - Soft, elegant floating pill */}
+      {/* Floating Zoom & Semantic Level HUD (Bottom-Left) */}
       <div
         id="map-zoom-controls"
-        className="absolute bottom-5 left-5 z-20 flex items-center gap-2 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border border-slate-200/80 dark:border-slate-800 px-3 py-1.5 rounded-full shadow-md select-none"
+        className="absolute bottom-5 left-5 z-20 flex items-center gap-1.5 bg-[var(--color-surface)] border border-[var(--color-rule)] px-3 py-1.5 rounded-lg shadow-sm select-none"
       >
         <button
-          onClick={() => setScale(prev => Math.max(prev * 0.85, 0.35))}
-          title="Zoom out (-)"
-          className="p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 transition-colors"
+          onClick={() => setScale(prev => Math.max(prev * 0.9, MIN_SCALE))}
+          disabled={scale <= MIN_SCALE}
+          title={`Zoom Out (Min: ${Math.round(MIN_SCALE * 100)}%)`}
+          className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:pointer-events-none text-[var(--color-ink-muted)] hover:text-[var(--color-ink)] transition-colors"
         >
-          <ZoomOut className="w-3.5 h-3.5" />
+          <ZoomOut className="w-4 h-4" />
         </button>
 
-        <span className="font-mono text-[11px] font-medium text-slate-700 dark:text-slate-300 px-1 min-w-[38px] text-center">
+        <span className="font-mono text-[11px] font-semibold text-[var(--color-ink)] px-1 min-w-[42px] text-center">
           {Math.round(scale * 100)}%
         </span>
 
         <button
-          onClick={() => setScale(prev => Math.min(prev * 1.15, 2.2))}
-          title="Zoom in (+)"
-          className="p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 transition-colors"
+          onClick={() => setScale(prev => Math.min(prev * 1.1, MAX_SCALE))}
+          disabled={scale >= MAX_SCALE}
+          title={`Zoom In (Max: ${Math.round(MAX_SCALE * 100)}%)`}
+          className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:pointer-events-none text-[var(--color-ink-muted)] hover:text-[var(--color-ink)] transition-colors"
         >
-          <ZoomIn className="w-3.5 h-3.5" />
+          <ZoomIn className="w-4 h-4" />
         </button>
 
-        <div className="w-[1px] h-3.5 bg-slate-200 dark:bg-slate-700 mx-0.5" />
+        <div className="w-px h-4 bg-[var(--color-rule)] mx-1" />
 
         <button
           onClick={handleFit}
-          title="Fit view to graph"
-          className="px-2 py-0.5 rounded-full font-mono text-[10px] text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 uppercase font-semibold transition-colors"
+          title="Fit Whole Graph to Screen"
+          className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-[var(--color-ink-muted)] hover:text-[var(--color-ink)] transition-colors"
         >
-          Fit
+          <Maximize2 className="w-3.5 h-3.5" />
         </button>
 
-        <div className="w-[1px] h-3.5 bg-slate-200 dark:bg-slate-700 mx-0.5" />
-
-        {/* Semantic Zoom Level Badge */}
-        <span className="font-mono text-[9px] uppercase px-2.5 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/60 font-semibold tracking-wider">
+        {/* Semantic Level Pill Badge */}
+        <span
+          className="ml-1 font-mono text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-[var(--color-rule)] text-[var(--color-ink-muted)]"
+          title={`Semantic Level: ${zoomLevel.toUpperCase()}`}
+        >
           {zoomLevel}
         </span>
       </div>
 
-      {/* Decorative Column Headers Overlay at top */}
-      <div className="absolute top-3 left-8 z-10 flex items-center gap-10 pointer-events-none">
-        <span className="font-mono text-[10px] tracking-wider uppercase font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50/90 dark:bg-indigo-950/70 border border-indigo-200/70 dark:border-indigo-800/60 rounded-full px-3 py-0.5 shadow-2xs">
-          1. Questions
-        </span>
-        <span className="font-mono text-[10px] tracking-wider uppercase font-semibold text-amber-800 dark:text-amber-300 bg-amber-50/90 dark:bg-amber-950/70 border border-amber-200/70 dark:border-amber-800/60 rounded-full px-3 py-0.5 shadow-2xs ml-16">
-          2. Claims
-        </span>
-        <span className="font-mono text-[10px] tracking-wider uppercase font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50/90 dark:bg-emerald-950/70 border border-emerald-200/70 dark:border-emerald-800/60 rounded-full px-3 py-0.5 shadow-2xs ml-16">
-          3. Findings / Evidence
-        </span>
+      {/* Interactive Helper Toast Hint */}
+      <div className="absolute top-4 right-4 z-20 pointer-events-none hidden md:flex items-center gap-2 px-3 py-1.5 bg-[var(--color-surface)]/90 backdrop-blur-xs border border-[var(--color-rule)] rounded-full text-[11px] font-mono text-slate-500 shadow-2xs">
+        <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+        <span>Hover to highlight relation branch • Drag node/link to Assistant Dock</span>
       </div>
     </div>
   );

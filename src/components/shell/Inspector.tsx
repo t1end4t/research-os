@@ -28,7 +28,9 @@ export const Inspector: React.FC = () => {
     rejectClaim,
     addExperiment,
     checkLinkWithAssistant,
-    setActiveContext
+    setActiveContext,
+    addAttachedContext,
+    setIsDockOpen
   } = useWorkspace();
 
   const [isEditingReason, setIsEditingReason] = useState(false);
@@ -73,13 +75,16 @@ export const Inspector: React.FC = () => {
   };
 
   const handleSendToDock = () => {
-    setActiveContext({
-      type: 'link',
+    const linkObj = {
+      type: 'link' as const,
       id: currentLink.id,
-      label: `Link: ${parentType} → ${childType}`,
-      secondaryLabel: `Reason: "${currentLink.userReason.slice(0, 40)}..."`,
+      label: `[LINK] ${parentType} → ${childType}`,
+      secondaryLabel: currentLink.userReason ? `Reason: "${currentLink.userReason.slice(0, 40)}..."` : 'No user reason',
       metadata: { linkId: currentLink.id }
-    });
+    };
+    setActiveContext(linkObj);
+    addAttachedContext(linkObj);
+    setIsDockOpen(true);
   };
 
   const handleConfirmWeaken = () => {
@@ -187,15 +192,28 @@ export const Inspector: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Grip to Assistant */}
+          {/* Grip to Assistant (Click or Drag into Chat) */}
           <button
             id="inspector-send-to-dock-btn"
+            draggable={true}
+            onDragStart={e => {
+              const linkObj = {
+                type: 'link' as const,
+                id: currentLink.id,
+                label: `[LINK] ${parentType} → ${childType}`,
+                secondaryLabel: currentLink.userReason ? `Reason: "${currentLink.userReason.slice(0, 40)}..."` : 'No user reason',
+                metadata: { linkId: currentLink.id }
+              };
+              e.dataTransfer.setData('application/json', JSON.stringify(linkObj));
+              e.dataTransfer.setData('text/plain', `[LINK] ${parentType} → ${childType}`);
+              e.dataTransfer.effectAllowed = 'copy';
+            }}
             onClick={handleSendToDock}
-            title="Inspect in Assistant Dock"
-            className="px-3 py-1 flex items-center gap-1.5 text-[11px] font-mono border border-slate-200 dark:border-slate-800 rounded-full hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 dark:hover:bg-indigo-950/50 dark:hover:text-indigo-300 text-slate-600 dark:text-slate-400 transition-all shadow-2xs"
+            title="Drag to Assistant Dock or click to attach"
+            className="px-3 py-1 flex items-center gap-1.5 text-[11px] font-mono border border-slate-200 dark:border-slate-800 rounded-full hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 dark:hover:bg-indigo-950/50 dark:hover:text-indigo-300 text-slate-600 dark:text-slate-400 transition-all shadow-2xs cursor-grab active:cursor-grabbing"
           >
             <GripVertical className="w-3 h-3" />
-            <span>Send to Assistant</span>
+            <span>+ Attach to Assistant</span>
           </button>
 
           <button
@@ -214,30 +232,30 @@ export const Inspector: React.FC = () => {
         {/* Left 7 cols: Parent/Child, User Reason, Validity */}
         <div className="lg:col-span-7 flex flex-col gap-5">
           {/* 1. Parent and Child */}
-          <div className="flex flex-col gap-2.5 p-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xs">
+          <div className="flex flex-col gap-2.5 p-4 bg-[var(--color-surface)] border border-[var(--color-rule)] rounded-lg shadow-2xs">
             <div className="flex items-start justify-between gap-2">
               <div className="flex-1">
-                <span className="text-[10px] font-mono tracking-wider text-indigo-600 dark:text-indigo-400 uppercase font-semibold bg-indigo-50 dark:bg-indigo-950/60 px-2 py-0.5 rounded-full border border-indigo-200/50 dark:border-indigo-800/50">
+                <span className="text-[10px] font-mono tracking-wider text-[var(--color-ink-muted)] uppercase font-semibold bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded border border-[var(--color-rule)]">
                   Parent ({parentType})
                 </span>
-                <p className="font-serif text-[15px] font-medium text-slate-900 dark:text-slate-100 leading-snug mt-1.5">
+                <p className="font-serif text-[15px] font-medium text-[var(--color-ink)] leading-snug mt-1.5">
                   {parentTitle}
                 </p>
               </div>
             </div>
 
-            <div className="h-[1px] bg-slate-200/80 dark:bg-slate-800 my-1 flex items-center justify-center">
-              <span className="bg-white dark:bg-slate-900 px-3 font-mono text-[10px] text-slate-400 uppercase tracking-widest font-semibold">
+            <div className="h-[1px] bg-[var(--color-rule)] my-1 flex items-center justify-center">
+              <span className="bg-[var(--color-surface)] px-3 font-mono text-[10px] text-[var(--color-ink-muted)] uppercase tracking-widest font-semibold">
                 supports ↓
               </span>
             </div>
 
             <div className="flex items-start justify-between gap-2">
               <div className="flex-1">
-                <span className="text-[10px] font-mono tracking-wider text-emerald-600 dark:text-emerald-400 uppercase font-semibold bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-200/50 dark:border-emerald-800/50">
+                <span className="text-[10px] font-mono tracking-wider text-[var(--color-ink-muted)] uppercase font-semibold bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded border border-[var(--color-rule)]">
                   Child ({childType})
                 </span>
-                <p className="font-serif text-[15px] font-medium text-slate-900 dark:text-slate-100 leading-snug mt-1.5">
+                <p className="font-serif text-[15px] font-medium text-[var(--color-ink)] leading-snug mt-1.5">
                   {childTitle}
                 </p>
               </div>
@@ -247,7 +265,7 @@ export const Inspector: React.FC = () => {
           {/* 2. User Reason (In serif, visually dominant, NEVER written by model) */}
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
-              <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+              <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-[var(--color-ink)] flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
                 2. User Reason (Committed)
               </span>
@@ -258,7 +276,7 @@ export const Inspector: React.FC = () => {
                     setEditedReason(currentLink.userReason);
                     setIsEditingReason(true);
                   }}
-                  className="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline font-mono font-medium"
+                  className="text-[11px] text-[var(--color-ink)] hover:underline font-mono font-medium"
                 >
                   Edit reason
                 </button>
@@ -266,13 +284,13 @@ export const Inspector: React.FC = () => {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={handleSaveReason}
-                    className="text-[11px] text-emerald-600 dark:text-emerald-400 font-mono font-semibold hover:underline"
+                    className="text-[11px] text-emerald-700 dark:text-emerald-400 font-mono font-semibold hover:underline"
                   >
                     Save
                   </button>
                   <button
                     onClick={() => setIsEditingReason(false)}
-                    className="text-[11px] text-slate-400 font-mono hover:underline"
+                    className="text-[11px] text-[var(--color-ink-muted)] font-mono hover:underline"
                   >
                     Cancel
                   </button>
@@ -285,20 +303,20 @@ export const Inspector: React.FC = () => {
                 value={editedReason}
                 onChange={e => setEditedReason(e.target.value)}
                 rows={3}
-                className="w-full p-3 font-serif text-[15px] bg-white dark:bg-slate-900 border border-indigo-300 dark:border-indigo-700 rounded-xl text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                className="w-full p-3 font-serif text-[15px] bg-[var(--color-surface)] border border-[var(--color-rule)] rounded-lg text-[var(--color-ink)] focus:outline-none focus:ring-1 focus:ring-slate-400"
                 placeholder="Why does the child support the parent? (Required)"
               />
             ) : currentLink.userReason ? (
-              <blockquote className="p-4 bg-gradient-to-br from-amber-50/80 via-orange-50/30 to-white dark:from-amber-950/30 dark:via-slate-900 dark:to-slate-900 border border-amber-200/80 dark:border-amber-800/60 rounded-2xl shadow-xs">
-                <p className="font-serif text-[16px] text-slate-900 dark:text-slate-100 leading-relaxed italic">
+              <blockquote className="p-4 bg-[var(--color-paper)] border border-[var(--color-rule)] rounded-lg">
+                <p className="font-serif text-[16px] text-[var(--color-ink)] leading-relaxed italic">
                   "{currentLink.userReason}"
                 </p>
-                <span className="block mt-2 font-mono text-[10px] text-amber-800/70 dark:text-amber-300/70 font-medium">
+                <span className="block mt-2 font-mono text-[10px] text-[var(--color-ink-muted)] font-medium">
                   Authored by: user • Required before link check
                 </span>
               </blockquote>
             ) : (
-              <div className="p-3.5 bg-rose-50/60 dark:bg-rose-950/30 border border-dashed border-rose-300 dark:border-rose-800 rounded-xl text-xs text-rose-700 dark:text-rose-300 font-medium">
+              <div className="p-3.5 bg-rose-50 dark:bg-rose-950/30 border border-dashed border-rose-300 dark:border-rose-800 rounded-lg text-xs text-rose-700 dark:text-rose-300 font-medium">
                 This link has no reason, so it cannot be checked.
               </div>
             )}

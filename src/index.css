@@ -1,24 +1,26 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @layer base {
   :root {
-    --color-paper: #FFFFFF;
-    --color-surface: #F8FAFC;
+    --color-paper: #F8F9FA;
+    --color-surface: #FFFFFF;
     --color-ink: #0F172A;
     --color-ink-muted: #64748B;
     --color-rule: #E2E8F0;
-    --color-holds: #10B981;
-    --color-weak: #F59E0B;
-    --color-missing: #F43F5E;
+    --color-holds: #059669;
+    --color-weak: #D97706;
+    --color-missing: #E11D48;
     
     /* Decorative accents */
-    --accent-indigo: #6366F1;
+    --accent-indigo: #4F46E5;
     --accent-indigo-soft: #EEF2FF;
-    --accent-amber: #F59E0B;
+    --accent-amber: #D97706;
     --accent-amber-soft: #FFFBEB;
-    --accent-emerald: #10B981;
+    --accent-emerald: #059669;
     --accent-emerald-soft: #ECFDF5;
-    --accent-rose: #F43F5E;
+    --accent-rose: #E11D48;
     --accent-rose-soft: #FFF1F2;
     --accent-teal: #0D9488;
     --accent-teal-soft: #F0FDFA;
@@ -27,8 +29,8 @@
   }
 
   .dark {
-    --color-paper: #0F172A;
-    --color-surface: #020617;
+    --color-paper: #090D15;
+    --color-surface: #111722;
     --color-ink: #F1F5F9;
     --color-ink-muted: #94A3B8;
     --color-rule: #1E293B;
