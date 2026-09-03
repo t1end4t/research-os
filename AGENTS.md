@@ -299,22 +299,25 @@ TypeScript only. No Python in this repo.
 | Storage | SQLite, one file, inside the active workspace folder |
 | LLM | `@earendil-works/pi-agent-core` via 9router; pinned `cx/gpt-5.6-sol` |
 
-**Current state:** graph, survey, and paper data load from Markdown prose, JSON
-metadata sidecars, and explicit JSON link files in the active workspace;
-experiment data remains a hardcoded fixture. Workspace files are read-only and
-UI edits remain session-local until versioned persistence exists. `src/App.tsx`
-still holds all UI state. A loopback Express server hosts Vite,
-`/api/workspace`, and `/api/assistant`; Pi chat uses 9router with one strict
-reply tool and isolated in-memory context threads. There is still no SQLite or
-domain tool for checks, clustering, or graph edits.
+**Current state:** the prototype implementation has been deleted deliberately.
+The repository now holds the specification (`AGENTS.md`, `docs/`) and a sample
+research workspace (`workspace/`) only. There is no application code, no build
+config and no dependency manifest; the GUI is being rebuilt from scratch rather
+than patched, because the prototype's visuals no longer match the decided
+design. The deleted code remains in git history if a detail needs recovering.
+
+The next build starts from the front end. It may use local fixture data shaped
+like `workspace/` and must not fake an assistant that violates §4. Backend,
+SQLite persistence, migration and real model calls come after, following
+`docs/storage-design.md`.
 
 The visual system, interaction model, SQLite tables and migration are decided
 but not yet built. Read `docs/gui-design.md` and `docs/storage-design.md` before
 implementing UI or persistence; `docs/decisions.md` records why. This file still
 wins on any conflict.
 
-`README.md` is AI Studio boilerplate and is stale. Root `CLAUDE.md` is a
-compatibility pointer to this file. **This file (`AGENTS.md`) is the authority.**
+Root `CLAUDE.md` is a compatibility pointer to this file. **This file
+(`AGENTS.md`) is the authority.**
 
 ### Workspace folders
 

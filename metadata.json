@@ -1,6 +1,0 @@
-{
-  "name": "Instrument",
-  "description": "Single-user local research tool making the structure of research arguments visible.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
